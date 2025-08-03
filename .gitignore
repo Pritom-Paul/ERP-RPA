@@ -1,0 +1,20 @@
+# Ignore Python cache and environment files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# VS Code settings
+.vscode/
+
+# OS/system files
+.DS_Store
+Thumbs.db
+
+# Ignore PDFs or other bulk data
+*.pdf
+*.docx
+*.xlsx
+
+# Optional: ignore entire document folder if large
+documents/
