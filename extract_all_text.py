@@ -171,27 +171,67 @@ for filename in os.listdir(pdf_dir):
 
 
         # Print the extracted information
-        print(f"--- File: {filename} ---")
-        print(f"-----All text:\n{all_text}\n-----")
-        print(f"PO Number: {po_no}")
-        print(f"Buying House: {buying_house}")
-        print(f"Buying House Address:\n{buying_house_add}")
-        print(f"Ship-to Address: {ship_to_address}")
-        print(f"Vendor No: {vendor_no}")
-        print(f"Payment Terms: {payment_terms}")
-        print(f"Document Date: {document_date}")
-        print(f"Shipment Method: {shipment_method}")
-        print(f"Order Type: {order_type}")
-        print(f"Shipping Agent: {shipping_agent}")
-        print(f"Order For: {order_for}")
-        print(f"Style No: {style_no}")
-        print(f"Description: {description}")
-        print(f"HS Code: {hs_code}")
-        # Print the extracted group entries
-        print(f"\nColor Code + Description\tSize\tQuantity")
-        for entry in group_entries:
-            print(f"{entry[0]}\t{entry[1]}\t{entry[2]}")
-        print(f"Barcodes: {barcodes}")
+        # print(f"--- File: {filename} ---")
+        # print(f"-----All text:\n{all_text}\n-----")
+        # print(f"PO Number: {po_no}")
+        # print(f"Buying House: {buying_house}")
+        # print(f"Buying House Address:\n{buying_house_add}")
+        # print(f"Ship-to Address: {ship_to_address}")
+        # print(f"Vendor No: {vendor_no}")
+        # print(f"Payment Terms: {payment_terms}")
+        # print(f"Document Date: {document_date}")
+        # print(f"Shipment Method: {shipment_method}")
+        # print(f"Order Type: {order_type}")
+        # print(f"Shipping Agent: {shipping_agent}")
+        # print(f"Order For: {order_for}")
+        # print(f"Style No: {style_no}")
+        # print(f"Description: {description}")
+        # print(f"HS Code: {hs_code}")
+        # # Print the extracted group entries
+        # print(f"\nColor Code + Description\tSize\tQuantity")
+        # for entry in group_entries:
+        #     print(f"{entry[0]}\t{entry[1]}\t{entry[2]}")
+        # print(f"Barcodes: {barcodes}")
 
         
-        print("="*80)
+        # print("="*80)
+
+        # Make sure barcode count matches group entries
+        if len(barcodes) != len(group_entries):
+            print(f"⚠️ Warning: Number of barcodes ({len(barcodes)}) does not match group entries ({len(group_entries)}).")
+
+
+        # Create dataframe rows
+        rows = []
+        for (color_desc, size, qty), barcode in zip(group_entries, barcodes):
+            rows.append({
+                "PO Number": po_no,
+                "Buying House": buying_house,
+                "Buying House Address": buying_house_add,
+                "Ship-to Address": ship_to_address,
+                "Vendor No": vendor_no,
+                "Payment Terms": payment_terms,
+                "Document Date": document_date,
+                "Shipment Method": shipment_method,
+                "Order Type": order_type,
+                "Shipping Agent": shipping_agent,
+                "Order For": order_for,
+                "Style No": style_no,
+                "Description": description,
+                "HS Code": hs_code,
+                "Color Code + Description": color_desc,
+                "Size": size,
+                "Quantity": qty,
+                "Barcode": barcode
+            })
+
+        # Create DataFrame
+        df = pd.DataFrame(rows)
+
+        # Print the DataFrame (optional)
+        print("\nFinal DataFrame:")
+        print(df.to_string(index=False))
+
+        # Save to Excel
+        # output_file = os.path.join(pdf_dir, f"{os.path.splitext(filename)[0]}.xlsx")
+        # df.to_excel(output_file, index=False)
