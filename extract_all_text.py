@@ -99,6 +99,10 @@ for filename in os.listdir(pdf_dir):
         total_qty_match = re.search(r"Total Qty.\s+(\d+)", all_text, re.IGNORECASE)
         total_qty = total_qty_match.group(1) if total_qty_match else None
 
+        #Prices Including VAT
+        prices_including_vat_match = re.search(r"Prices Including VAT\s+(\w+)", all_text, re.IGNORECASE)
+        prices_including_vat = prices_including_vat_match.group(1) if prices_including_vat_match else None
+
 
         ## GROUP FIELDS ##
         # Extract group fields: Color Code + Description, Size, Quantity
@@ -246,7 +250,8 @@ for filename in os.listdir(pdf_dir):
                 "Prepack Code": "",
                 "Prepacks":"",
                 "Total Quantity": total_qty,
-                "Batch Quantity": batch_qty
+                "Batch Quantity": batch_qty,
+                "Prices Including VAT": prices_including_vat
             })
 
         # Create DataFrame
