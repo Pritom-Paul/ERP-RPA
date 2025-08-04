@@ -95,6 +95,10 @@ for filename in os.listdir(pdf_dir):
         hs_code_match = re.search(r"HS CODE:\s+(\d+)", all_text, re.IGNORECASE)
         hs_code = hs_code_match.group(1) if hs_code_match else None
 
+        #Total Quantity
+        total_qty_match = re.search(r"Total Qty.\s+(\d+)", all_text, re.IGNORECASE)
+        total_qty = total_qty_match.group(1) if total_qty_match else None
+
 
         ## GROUP FIELDS ##
         # Extract group fields: Color Code + Description, Size, Quantity
@@ -103,49 +107,64 @@ for filename in os.listdir(pdf_dir):
         while i < len(lines):
             line = lines[i].strip()
 
-            # ✅ Skip lines like "HS Code: 6109100010"
+            # Skip HS Code lines
             if "HS Code:" in line:
                 i += 1
                 continue
 
-            # Detect start of a new product block
-            if re.match(r"^\d{6}\b", line):
-                if i + 3 < len(lines):
-                    size_line = lines[i + 1].strip()
-                    qty_line = lines[i + 2].strip()
-                    color_line = lines[i + 3].strip()
+            # Detect a new product block (starts with Style No.)
+            if re.match(r"^\d{6}\b", line):  # e.g., "101423 USPA T-Shirt Arjun Men"
+                i += 1  # Skip the Style No. line
+                
+                if i >= len(lines):
+                    break
 
-                    # ✅ Skip any intermediate lines with HS Code
-                    if "HS Code:" in size_line or "HS Code:" in qty_line or "HS Code:" in color_line:
-                        i += 1
-                        continue
+                # Extract sizes (next line)
+                size_line = lines[i].strip()
+                sizes = size_line.split()  # e.g., ["XXS", "XS", "S", "M", ...]
+                i += 1
 
-                    sizes = size_line.split()
-                    qtys = [int(q) for q in qty_line.split() if q.isdigit()]
+                if i >= len(lines):
+                    break
 
-                    # Try to extract color code (first item in qty line)
-                    color_code_match = re.match(r"^([A-Za-z0-9\-]+)", qty_line)
-                    color_code = color_code_match.group(1) if color_code_match else ""
+                # Get the quantity line (contains color code + quantities + batch qty)
+                qty_line = lines[i].strip()
 
-                    # Greymelange fallback case — sometimes no color code line exists
-                    if not qtys or len(qtys) != len(sizes):
-                        # Check if the current line is like "Greymelange 18 48 48 24 12 150"
-                        greymelange_match = re.match(r"^(\w+)\s+([\d\s]+)", line)
-                        if greymelange_match:
-                            color_desc = greymelange_match.group(1)
-                            qtys_line = greymelange_match.group(2)
-                            sizes = ["S", "M", "L", "XL", "2XL"]  # Assumed for greymelange
-                            qtys = [int(q) for q in qtys_line.split()]
-                            for sz, qty in zip(sizes, qtys):
-                                group_entries.append((color_desc, sz, qty))
-                            i += 1
-                            continue
-
-                    color_key = f"{color_code}\n{color_line}"
-
+                # Handle Greymelange case (no color code)
+                greymelange_match = re.match(r"^([A-Za-z]+)\s+([\d\s]+)$", qty_line)
+                if greymelange_match:
+                    color_desc = greymelange_match.group(1)  # "Greymelange"
+                    qty_parts = greymelange_match.group(2).split()
+                    
+                    # The last number is the batch quantity
+                    batch_qty = int(qty_parts[-1]) if qty_parts else 0
+                    qtys = [int(q) for q in qty_parts[:-1]]  # Individual quantities
+                    
                     for sz, qty in zip(sizes, qtys):
-                        group_entries.append((color_key, sz, qty))
-                    i += 4
+                        group_entries.append((color_desc, sz, qty, batch_qty))
+                    i += 1
+                    continue
+
+                # Normal case (with color code)
+                color_code_match = re.match(r"^([A-Za-z0-9\-]+)", qty_line)
+                if color_code_match:
+                    color_code = color_code_match.group(1)  # e.g., "11-0601TCX"
+                    qty_parts = qty_line.split()
+                    
+                    # The last number is the batch quantity
+                    batch_qty = int(qty_parts[-1]) if qty_parts else 0
+                    qtys = [int(q) for q in qty_parts[1:-1] if q.isdigit()]  # Skip color code & batch qty
+                    
+                    # Get color description from next line
+                    if i + 1 < len(lines):
+                        color_desc = lines[i+1].strip()  # e.g., "White"
+                        i += 1
+                    
+                    color_key = f"{color_code}\n{color_desc}"
+                    
+                    for sz, qty in zip(sizes, qtys):
+                        group_entries.append((color_key, sz, qty, batch_qty))
+                    i += 1
                 else:
                     i += 1
             else:
@@ -173,6 +192,9 @@ for filename in os.listdir(pdf_dir):
         # Print the extracted information
         # print(f"--- File: {filename} ---")
         # print(f"-----All text:\n{all_text}\n-----")
+        # print(f"\nColor Code + Description\tSize\tQuantity")
+        # for entry in group_entries:
+        #     print(f"{entry[0]}\t{entry[1]}\t{entry[2]}")
         # print(f"PO Number: {po_no}")
         # print(f"Buying House: {buying_house}")
         # print(f"Buying House Address:\n{buying_house_add}")
@@ -188,10 +210,8 @@ for filename in os.listdir(pdf_dir):
         # print(f"Description: {description}")
         # print(f"HS Code: {hs_code}")
         # # Print the extracted group entries
-        # print(f"\nColor Code + Description\tSize\tQuantity")
-        # for entry in group_entries:
-        #     print(f"{entry[0]}\t{entry[1]}\t{entry[2]}")
         # print(f"Barcodes: {barcodes}")
+        # print(f"Total Quantity: {total_qty}")
 
         
         # print("="*80)
@@ -201,9 +221,9 @@ for filename in os.listdir(pdf_dir):
             print(f"⚠️ Warning: Number of barcodes ({len(barcodes)}) does not match group entries ({len(group_entries)}).")
 
 
-        # Create dataframe rows
+        # # Create dataframe rows
         rows = []
-        for (color_desc, size, qty), barcode in zip(group_entries, barcodes):
+        for (color_desc, size, qty, batch_qty), barcode in zip(group_entries, barcodes):
             rows.append({
                 "PO Number": po_no,
                 "Buying House": buying_house,
@@ -222,7 +242,11 @@ for filename in os.listdir(pdf_dir):
                 "Color Code + Description": color_desc,
                 "Size": size,
                 "Quantity": qty,
-                "Barcode": barcode
+                "Barcode": barcode,
+                "Prepack Code": "",
+                "Prepacks":"",
+                "Total Quantity": total_qty,
+                "Batch Quantity": batch_qty
             })
 
         # Create DataFrame
