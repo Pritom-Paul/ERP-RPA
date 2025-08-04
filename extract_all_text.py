@@ -233,5 +233,5 @@ for filename in os.listdir(pdf_dir):
         print(df.to_string(index=False))
 
         # Save to Excel
-        # output_file = os.path.join(pdf_dir, f"{os.path.splitext(filename)[0]}.xlsx")
-        # df.to_excel(output_file, index=False)
+        output_file = os.path.join(pdf_dir, f"{os.path.splitext(filename)[0]}.xlsx")
+        df.to_excel(output_file, index=False)
