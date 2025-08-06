@@ -3,7 +3,7 @@ import re
 import pdfplumber
 import pandas as pd
 
-pdf_dir = r"C:\Users\Altersense\Desktop\ERP-RPA\Sample"
+pdf_dir = r"C:\Users\Altersense\Desktop\ERP-RPA\Format 1 Test\DOCUMENTS(without prepack)"
 
 for filename in os.listdir(pdf_dir):
     if filename.lower().endswith(".pdf"):
@@ -195,7 +195,7 @@ for filename in os.listdir(pdf_dir):
 
         # Print the extracted information
         # print(f"--- File: {filename} ---")
-        # print(f"-----All text:\n{all_text}\n-----")
+        print(f"-----All text:\n{all_text}\n-----")
         # print(f"\nColor Code + Description\tSize\tQuantity")
         # for entry in group_entries:
         #     print(f"{entry[0]}\t{entry[1]}\t{entry[2]}")
@@ -255,12 +255,12 @@ for filename in os.listdir(pdf_dir):
             })
 
         # Create DataFrame
-        df = pd.DataFrame(rows)
+        # df = pd.DataFrame(rows)
 
-        # Print the DataFrame (optional)
-        print("\nFinal DataFrame:")
-        print(df.to_string(index=False))
+        # # Print the DataFrame (optional)
+        # print("\nFinal DataFrame:")
+        # print(df.to_string(index=False))
 
-        # Save to Excel
-        output_file = os.path.join(pdf_dir, f"{os.path.splitext(filename)[0]}.xlsx")
-        df.to_excel(output_file, index=False)
+        # # Save to Excel
+        # output_file = os.path.join(pdf_dir, f"{os.path.splitext(filename)[0]}.xlsx")
+        # df.to_excel(output_file, index=False)
