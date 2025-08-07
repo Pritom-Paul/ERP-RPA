@@ -3,7 +3,7 @@ import re
 import pdfplumber
 import pandas as pd
 
-pdf_dir = r"C:\Users\Altersense\Desktop\ERP-RPA\Sample"
+pdf_dir = r"C:\Users\Altersense\Desktop\ERP-RPA\Format 1 Test\DOCUMENTS(without prepack)"
 
 for filename in os.listdir(pdf_dir):
     if filename.lower().endswith(".pdf"):
@@ -11,28 +11,39 @@ for filename in os.listdir(pdf_dir):
         with pdfplumber.open(pdf_path) as pdf:
             all_text = ""
             body_text_lines = []
+            last_header_line = None
+            
+            # First pass to find the last header line from first page
+            first_page = pdf.pages[0]
+            first_page_text = first_page.extract_text() or ""
+            first_page_lines = first_page_text.splitlines()
+            
+            for idx, line in enumerate(first_page_lines):
+                if "order for" in line.lower():
+                    if idx > 0:
+                        last_header_line = first_page_lines[idx-1].strip().lower()
+                    break
+            
+            if not last_header_line:
+                raise ValueError("Invalid file format: Header not found.")
+            
 
+            # Process all pages using the found last header line
             for page in pdf.pages:
                 page_text = page.extract_text() or ""
                 all_text += page_text + "\n"
-
                 page_lines = page_text.splitlines()
-
-                trimmed = False  # Flag to prevent double trimming
-
-                for idx, line in enumerate(page_lines):
-                    if line.strip().lower().startswith("purchaser"):
-                        if idx + 1 < len(page_lines):
-                            body_text_lines.extend(page_lines[idx + 1:])
-                        trimmed = True
-                        break  # Done trimming this page
-
-                if not trimmed:
+                found_header_in_page = False
+                if last_header_line:
                     for idx, line in enumerate(page_lines):
-                        if "shipping agent" in line.lower():
+                        if last_header_line in line.strip().lower():
+                            found_header_in_page = True
                             if idx + 1 < len(page_lines):
                                 body_text_lines.extend(page_lines[idx + 1:])
-                            break  # Done trimming this page
+                            break
+                if not found_header_in_page:
+                    raise ValueError("Invalid file format: Header missing on one or more pages.")
+        # print(f"last_header_line: {last_header_line}")
 
         
         ## COMMON FIELDS EXTRACTION ## 
@@ -124,77 +135,6 @@ for filename in os.listdir(pdf_dir):
         #Prices Including VAT
         prices_including_vat_match = re.search(r"Prices Including VAT\s+(\w+)", all_text, re.IGNORECASE)
         prices_including_vat = prices_including_vat_match.group(1) if prices_including_vat_match else None
-
-
-        ## GROUP FIELDS ##
-        # Extract group fields: Color Code + Description, Size, Quantity
-        # group_entries = []
-        # i = 0
-        # while i < len(lines):
-        #     line = lines[i].strip()
-
-        #     # Skip HS Code lines
-        #     if "HS Code:" in line:
-        #         i += 1
-        #         continue
-
-        #     # Detect a new product block (starts with Style No.)
-        #     if re.match(r"^\d{6}\b", line):  # e.g., "101423 USPA T-Shirt Arjun Men"
-        #         i += 1  # Skip the Style No. line
-                
-        #         if i >= len(lines):
-        #             break
-
-        #         # Extract sizes (next line)
-        #         size_line = lines[i].strip()
-        #         sizes = size_line.split()  # e.g., ["XXS", "XS", "S", "M", ...]
-        #         i += 1
-
-        #         if i >= len(lines):
-        #             break
-
-        #         # Get the quantity line (contains color code + quantities + batch qty)
-        #         qty_line = lines[i].strip()
-
-        #         # Handle Greymelange case (no color code)
-        #         greymelange_match = re.match(r"^([A-Za-z]+)\s+([\d\s]+)$", qty_line)
-        #         if greymelange_match:
-        #             color_desc = greymelange_match.group(1)  # "Greymelange"
-        #             qty_parts = greymelange_match.group(2).split()
-                    
-        #             # The last value is the batch quantity
-        #             batch_qty = qty_parts[-1] if qty_parts else ""
-        #             qtys = [int(q) for q in qty_parts[:-1]]  # Individual quantities
-                    
-        #             for sz, qty in zip(sizes, qtys):
-        #                 group_entries.append((color_desc, sz, qty, batch_qty))
-        #             i += 1
-        #             continue
-
-        #         # Normal case (with color code)
-        #         color_code_match = re.match(r"^([A-Za-z0-9\-]+)", qty_line)
-        #         if color_code_match:
-        #             color_code = color_code_match.group(1)  # e.g., "11-0601TCX"
-        #             qty_parts = qty_line.split()
-                    
-        #             # The last value is the batch quantity
-        #             batch_qty = qty_parts[-1] if qty_parts else ""
-        #             qtys = [int(q) for q in qty_parts[1:-1] if q.isdigit()]  # Skip color code & batch qty
-                    
-        #             # Get color description from next line
-        #             if i + 1 < len(lines):
-        #                 color_desc = lines[i+1].strip()  # e.g., "White"
-        #                 i += 1
-                    
-        #             color_key = f"{color_code}\n{color_desc}"
-                    
-        #             for sz, qty in zip(sizes, qtys):
-        #                 group_entries.append((color_key, sz, qty, batch_qty))
-        #             i += 1
-        #         else:
-        #             i += 1
-        #     else:
-        #         i += 1
         
         # Extract group fields: Color Code + Description, Size, Quantity (from body text)
         group_entries = []
@@ -314,6 +254,8 @@ for filename in os.listdir(pdf_dir):
             print(f"⚠️ Warning: For the file: {filename} Number of barcodes ({len(barcodes)}) does not match group entries ({len(group_entries)}).")
             # print(f"-----All text:\n{all_text}\n-----")
             print(f"body_text_lines: {body_text_lines}")
+        else:
+            print(f"✅ Number of barcodes matches group entries.")
 
 
         # # Create dataframe rows
@@ -345,13 +287,13 @@ for filename in os.listdir(pdf_dir):
                 "Prices Including VAT": prices_including_vat
             })
 
-        # Create DataFrame
-        df = pd.DataFrame(rows)
+        # # Create DataFrame
+        # df = pd.DataFrame(rows)
 
-        # Print the DataFrame (optional)
-        print("\nFinal DataFrame:")
-        print(df.to_string(index=False))
+        # # Print the DataFrame (optional)
+        # print("\nFinal DataFrame:")
+        # print(df.to_string(index=False))
 
-        # Save to Excel
-        output_file = os.path.join(pdf_dir, f"{os.path.splitext(filename)[0]}.xlsx")
-        df.to_excel(output_file, index=False)
+        # # Save to Excel
+        # output_file = os.path.join(pdf_dir, f"{os.path.splitext(filename)[0]}.xlsx")
+        # df.to_excel(output_file, index=False)
