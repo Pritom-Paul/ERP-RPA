@@ -1,3 +1,6 @@
+# RUN THE SCRIPT WITH THE LINE BELOW
+# #  python -m uvicorn main:app --reload
+##-----------------------------------------------------
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import JSONResponse
 import pdfplumber

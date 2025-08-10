@@ -3,7 +3,7 @@ import re
 import pdfplumber
 import pandas as pd
 
-pdf_dir = r"C:\Users\Altersense\Desktop\ERP-RPA\Format 2 Test"
+pdf_dir = r"C:\Users\Altersense\Desktop\ERP-RPA\Format 2 Test\test"
 
 for filename in os.listdir(pdf_dir):
     if filename.lower().endswith(".pdf"):
