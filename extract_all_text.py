@@ -68,23 +68,27 @@ for filename in os.listdir(pdf_dir):
 
             # print(f"All Text:\n{all_text}")  # Raw text
             # print(f"Body Text:\n{body_text}")  # Cleaned text without headers/footers
-            print(f"Order Details:\n{order_details_text}")  # Extracted order details texts             
+            # print(f"Order Details:\n{order_details_text}")  # Extracted order details texts             
 
 
 
 #* COMMON/SHARED FIELDS
 
 extract_order_number = re.search(r"Order\s*([A-Za-z0-9]+)", all_text)
-print(f"Extracted Order Number: {extract_order_number.group(1) if extract_order_number else 'Not found'}")
+# print(f"Extracted Order Number: {extract_order_number.group(1) if extract_order_number else 'Not found'}")
+order_number = extract_order_number.group(1) if extract_order_number else "Not found"
 
 extract_buy_from_vendor_no = re.search(r"Buy-from Vendor No\.?\s*([0-9]+)", all_text)
-print(f"Extracted Buy-from Vendor No.: {extract_buy_from_vendor_no.group(1) if extract_buy_from_vendor_no else 'Not found'}")
+# print(f"Extracted Buy-from Vendor No.: {extract_buy_from_vendor_no.group(1) if extract_buy_from_vendor_no else 'Not found'}")
+buy_from_vendor_no = extract_buy_from_vendor_no.group(1) if extract_buy_from_vendor_no else "Not found"
 
 extract_order_date = re.search(r"Order Date\s*([0-9]{2}-[0-9]{2}-[0-9]{4})", all_text)
-print(f"Extracted Order Date: {extract_order_date.group(1) if extract_order_date else 'Not found'}")
+# print(f"Extracted Order Date: {extract_order_date.group(1) if extract_order_date else 'Not found'}")
+order_date = extract_order_date.group(1) if extract_order_date else "Not found"
 
 extract_purchaser = re.search(r"Purchaser\s*([^\n\d]+)", all_text)
-print(f"Extracted Purchaser: {extract_purchaser.group(1) if extract_purchaser else 'Not found'}")
+# print(f"Extracted Purchaser: {extract_purchaser.group(1) if extract_purchaser else 'Not found'}")
+purchaser = extract_purchaser.group(1).strip() if extract_purchaser else "Not found"
 
 # Extracting Email
 extract_email_match = re.search(r"E-Mail\s*([^\n@]+@)", all_text)
@@ -92,67 +96,66 @@ extract_email = None
 if extract_email_match:
     email_prefix = extract_email_match.group(1).strip().rstrip('@')
     extract_email = email_prefix + "@brands-fashion.com"
-print(f"Extracted Email: {extract_email if extract_email else 'Not found'}")
+# print(f"Extracted Email: {extract_email if extract_email else 'Not found'}")
+email = extract_email if extract_email else "Not found"
 
 extract_phone_no = re.search(r"Phone No\.?\s*([+\d\-\(\)\s]+)", all_text)
-print(f"Extracted Phone No.: {extract_phone_no.group(1) if extract_phone_no else 'Not found'}")
+# print(f"Extracted Phone No.: {extract_phone_no.group(1) if extract_phone_no else 'Not found'}")
+phone_no = extract_phone_no.group(1) if extract_phone_no else "Not found"
 
 extract_payment_terms = re.search(r"Payment Terms\s*([^\n]+)", all_text)
-print(f"Extracted Payment Terms: {extract_payment_terms.group(1) if extract_payment_terms else 'Not found'}")
+# print(f"Extracted Payment Terms: {extract_payment_terms.group(1) if extract_payment_terms else 'Not found'}")
+payment_terms = extract_payment_terms.group(1) if extract_payment_terms else "Not found"
 
 extract_payment_method = re.search(r"Payment Method\s*([^\n]+)", all_text)
-print(f"Extracted Payment Method: {extract_payment_method.group(1) if extract_payment_method else 'Not found'}")
+# print(f"Extracted Payment Method: {extract_payment_method.group(1) if extract_payment_method else 'Not found'}")
+payment_method = extract_payment_method.group(1) if extract_payment_method else "Not found"
 
 extract_shipment_method = re.search(r"Shipment Method\s*([^\n]+)", all_text)
-print(f"Extracted Shipment Method: {extract_shipment_method.group(1) if extract_shipment_method else 'Not found'}")
+# print(f"Extracted Shipment Method: {extract_shipment_method.group(1) if extract_shipment_method else 'Not found'}")
+shipment_method = extract_shipment_method.group(1) if extract_shipment_method else "Not found"
 
 extract_transport_method = re.search(r"Transport Method\s*([^\n]+)", all_text)
-print(f"Extracted Transport Method: {extract_transport_method.group(1) if extract_transport_method else 'Not found'}")
+# print(f"Extracted Transport Method: {extract_transport_method.group(1) if extract_transport_method else 'Not found'}")
+transport_method = extract_transport_method.group(1) if extract_transport_method else "Not found"
 
 extract_shipping_agent_code = re.search(r"Shipping Agent Code\s*([^\n]+)", all_text)
-print(f"Extracted Shipping Agent Code: {extract_shipping_agent_code.group(1) if extract_shipping_agent_code else 'Not found'}")
+# print(f"Extracted Shipping Agent Code: {extract_shipping_agent_code.group(1) if extract_shipping_agent_code else 'Not found'}")
+shipping_agent_code = extract_shipping_agent_code.group(1) if extract_shipping_agent_code else "Not found"
 
 extract_port_of_departure = re.search(r"Port of Departure\s*([^\n]+)", all_text)
-print(f"Extracted Port of Departure: {extract_port_of_departure.group(1) if extract_port_of_departure else 'Not found'}")
+# print(f"Extracted Port of Departure: {extract_port_of_departure.group(1) if extract_port_of_departure else 'Not found'}")
+port_of_departure = extract_port_of_departure.group(1) if extract_port_of_departure else "Not found"
 
 extract_shipment_date_etd = re.search(r"Shipment Date ETD\s*([0-9]{1,2}-[0-9]{2}-[0-9]{4})", all_text)
-print(f"Extracted Shipment Date ETD: {extract_shipment_date_etd.group(1) if extract_shipment_date_etd else 'Not found'}")
+# print(f"Extracted Shipment Date ETD: {extract_shipment_date_etd.group(1) if extract_shipment_date_etd else 'Not found'}")
+shipment_date_etd = extract_shipment_date_etd.group(1) if extract_shipment_date_etd else "Not found"
 
 extract_cost_center = re.search(r"Cost Center\s*([^\n]+)", all_text)
-print(f"Extracted Cost Center: {extract_cost_center.group(1) if extract_cost_center else 'Not found'}")
+# print(f"Extracted Cost Center: {extract_cost_center.group(1) if extract_cost_center else 'Not found'}")
+cost_center = extract_cost_center.group(1) if extract_cost_center else "Not found"
 
 extract_unit_match = re.search(r"Total\s*[\d\.,]+\s*([A-Za-z]+)", all_text)
-extract_unit = extract_unit_match.group(1) if extract_unit_match else None
-print(f"Extracted Unit: {extract_unit if extract_unit else 'Not found'}")
+# print(f"Extracted Unit: {unit if unit else 'Not found'}")
+unit = extract_unit_match.group(1) if extract_unit_match else "Not found"
 
 extract_currency_match = re.search(r"Amount\s*[\d\.,]+\s*([A-Za-z]+)", all_text)
-extract_currency = extract_currency_match.group(1) if extract_currency_match else None
-print(f"Extracted Currency: {extract_currency if extract_currency else 'Not found'}")
+# print(f"Extracted Currency: {currency if currency else 'Not found'}")
+currency = extract_currency_match.group(1) if extract_currency_match else None
 
 extract_total_pieces_match = re.search(r"Total PIECES\s*([\d\.,]+)", all_text)
 if extract_total_pieces_match:
-    extract_total_pieces = str(parse_decimal(extract_total_pieces_match.group(1), locale='de_DE'))
-    print(f"Extracted Total Pieces: {extract_total_pieces}")
+    total_pieces = str(parse_decimal(extract_total_pieces_match.group(1), locale='de_DE'))
+    # print(f"Extracted Total Pieces: {total_pieces}")
 else:
-    extract_total_pieces = "Not found"
+    total_pieces = "Not found"
 
 extract_total_usd_match = re.search(r"Total USD\s*([\d\.,]+)", all_text)
 if extract_total_usd_match:
-    extract_total_usd = str(parse_decimal(extract_total_usd_match.group(1), locale='de_DE'))
-    print(f"Extracted Total USD: {extract_total_usd}")
+    total_usd = str(parse_decimal(extract_total_usd_match.group(1), locale='de_DE'))
+    # print(f"Extracted Total USD: {total_usd}")
 else:
-    extract_total_usd = "Not found"
-
-# Applicable Certifications
-applicable_certifications=[]
-extract_applicable_certifications = re.findall(r"Certifications:\s*(.+)", all_text)
-if extract_applicable_certifications:
-    for cert in extract_applicable_certifications:
-        cert = cert.strip()
-        if cert:
-            applicable_certifications.append(cert)
-    print(f"Extracted Applicable Certifications: {applicable_certifications}")
-
+    total_usd = "Not found"
 
 #* Camelot Extractions 
 ship_to_address = None
@@ -173,13 +176,23 @@ for df in camelot_tables:
         )
         break  # Stop after first match
 
-print(f"Extracted Ship-to Address: {ship_to_address if ship_to_address else 'Not found'}")
-print(f"Extracted Agency to Address: {agency_to_address if agency_to_address else 'Not found'}")
-print(f"Extracted Buying House Address: {buying_house_address if buying_house_address else 'Not found'}")
-print(f"Extracted Agency Full Address: {agency_full_address if agency_full_address else 'Not found'}")
+# print(f"Extracted Ship-to Address: {ship_to_address if ship_to_address else 'Not found'}")
+# print(f"Extracted Agency to Address: {agency_to_address if agency_to_address else 'Not found'}")
+# print(f"Extracted Buying House Address: {buying_house_address if buying_house_address else 'Not found'}")
+# print(f"Extracted Agency Full Address: {agency_full_address if agency_full_address else 'Not found'}")
 
 
 #* GROUPED FIELDS
+
+# Applicable Certifications
+applicable_certifications=[]
+extract_applicable_certifications = re.findall(r"Certifications:\s*(.+)", all_text)
+if extract_applicable_certifications:
+    for cert in extract_applicable_certifications:
+        cert = cert.strip()
+        if cert:
+            applicable_certifications.append(cert)
+    # print(f"Extracted Applicable Certifications: {applicable_certifications}")
 
 # Capture each order block: from the first line until the line starting with Amount
 order_blocks = re.findall(r'^(.*?Amount\s[\d\.,]+\s*\w*)', order_details_text, re.DOTALL | re.MULTILINE)
