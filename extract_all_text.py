@@ -5,7 +5,8 @@ import pandas as pd
 import camelot
 from babel.numbers import parse_decimal
 
-pdf_dir = r"C:\Users\Altersense\Desktop\ERP-RPA\Sample\Main"
+pdf_dir = r"C:\Users\Altersense\Desktop\ERP-RPA\Sample\Other Samples"
+# pdf_dir = r"C:\Users\Altersense\Desktop\ERP-RPA\Sample\Main"
 
 for filename in os.listdir(pdf_dir):
     if filename.lower().endswith(".pdf"):
@@ -53,14 +54,31 @@ for filename in os.listdir(pdf_dir):
             # === Extract order details ===
             order_details_lines = []
             capture = False
+            last_total_usd_index = None
+            lines = body_text.split("\n")
 
-            for line in body_text.split("\n"):
+            # Pre-calc last "Total USD" if "Applicable Certifications" not found
+            if "Applicable Certifications" not in body_text:
+                for i, line in enumerate(lines):
+                    if "Total USD" in line:
+                        last_total_usd_index = i
+
+            for i, line in enumerate(lines):
                 if "This document contains certified products. Please see table below for details." in line:
                     capture = True
                     continue
+                
+                if not capture and "shipment FOB date" in line:
+                    capture = True
+
                 if "Applicable Certifications" in line:
                     capture = False
                     continue
+
+                # Stop continuing if we hit the last "Total USD" line
+                if last_total_usd_index is not None and i > last_total_usd_index:
+                    capture = False
+
                 if capture and line.strip():
                     order_details_lines.append(line)
 
@@ -157,29 +175,72 @@ if extract_total_usd_match:
 else:
     total_usd = "Not found"
 
-#* Camelot Extractions 
-ship_to_address = None
-agency_to_address = None
-buying_house_address = None
-agency_full_address = None
+# Camelot Extractions
+ship_to_address = 'Not found'
+agency_to_address = "Not found"
+buying_house_address = "Not found"
+agency_full_address = "Not found"
 
-for df in camelot_tables:
-    if df.shape[1] >= 2 and "Ship-to Address" in str(df.iloc[0, 0]):
-        ship_to_address = df.iloc[1, 0].strip()
-        agency_to_address = df.iloc[1, 1].strip()
-        # Extract FULL addresses (all lines under headers)
-        buying_house_address = "\n".join(
-            [row[0].strip() for row in df.iloc[2:].values if row[0].strip()]
-        )
-        agency_full_address = "\n".join(
-            [row[1].strip() for row in df.iloc[2:].values if row[1].strip()]
-        )
-        break  # Stop after first match
+found_address = False
 
-# print(f"Extracted Ship-to Address: {ship_to_address if ship_to_address else 'Not found'}")
-# print(f"Extracted Agency to Address: {agency_to_address if agency_to_address else 'Not found'}")
-# print(f"Extracted Buying House Address: {buying_house_address if buying_house_address else 'Not found'}")
-# print(f"Extracted Agency Full Address: {agency_full_address if agency_full_address else 'Not found'}")
+for i, df in enumerate(camelot_tables):
+    if df.shape[1] >= 2:
+        first_cell = str(df.iloc[0, 0])
+        if "Ship-to Address" in first_cell:
+            ship_to_address = df.iloc[1, 0].strip()
+            agency_to_address = df.iloc[1, 1].strip()
+            buying_house_address = "\n".join(
+                [row[0].strip() for row in df.iloc[2:].values if row[0].strip()]
+            )
+            agency_full_address = "\n".join(
+                [row[1].strip() for row in df.iloc[2:].values if row[1].strip()]
+            )
+            found_address = True
+            break
+
+# Fallback search if not found in standard position
+if not found_address:
+    for i, df in enumerate(camelot_tables):
+        for row_idx in range(df.shape[0]):
+            for col_idx in range(df.shape[1]):
+                cell_value = str(df.iloc[row_idx, col_idx]).strip()
+                if "Ship-to Address" in cell_value:
+                    print(f"Found 'Ship-to Address' at Table {i+1}, Row {row_idx+1}, Column {col_idx+1}")
+                    
+                    # Extract ship-to address (next row in same column)
+                    if row_idx + 1 < df.shape[0]:
+                        ship_to_address = str(df.iloc[row_idx + 1, col_idx]).strip()
+                        
+                        # Extract buying house address (next 3 rows max)
+                        buying_house_lines = []
+                        for r in range(row_idx + 2, df.shape[0]):
+                            line = str(df.iloc[r, col_idx]).strip()
+                            if line: buying_house_lines.append(line)
+                        buying_house_address = "\n".join(buying_house_lines)
+                    
+                    # Try to find agency in same row
+                    for agency_col in range(df.shape[1]):
+                        if agency_col != col_idx and "Agency" in str(df.iloc[row_idx, agency_col]).strip():
+                            agency_to_address = str(df.iloc[row_idx + 1, agency_col]).strip() if row_idx + 1 < df.shape[0] else "Not found"
+                            
+                            # Extract agency address (next 3 rows max)
+                            agency_lines = []
+                            for r in range(row_idx + 2, df.shape[0]):
+                                line = str(df.iloc[r, agency_col]).strip()
+                                if line: agency_lines.append(line)
+                            agency_full_address = "\n".join(agency_lines)
+                            break
+                    
+                    found_address = True
+                    break
+            if found_address: break
+        if found_address: break
+
+# print("\nFinal Address Values:")
+# print(f"Ship-to: {ship_to_address}")
+# print(f"Agency: {agency_to_address}")
+# print(f"Buying House: {buying_house_address}")
+# print(f"Full Agency: {agency_full_address}")
 
 
 #* GROUPED FIELDS
@@ -194,6 +255,15 @@ if extract_applicable_certifications:
             applicable_certifications.append(cert)
     # print(f"Extracted Applicable Certifications: {applicable_certifications}")
 
+# Also capture the style description line above each certification
+cert_map = {}
+cert_pattern = re.finditer(r'([^\n]+)\nCertifications:\s*(.+)', all_text)
+for match in cert_pattern:
+    style_desc_full = match.group(1).strip()
+    style_desc_parts = style_desc_full.split()
+    style_desc = " ".join(style_desc_parts[1:]) if style_desc_parts else style_desc_full
+    certs = match.group(2).strip()
+    cert_map[style_desc] = certs
 # Capture each order block: from the first line until the line starting with Amount
 order_blocks = re.findall(r'^(.*?Amount\s[\d\.,]+\s*\w*)', order_details_text, re.DOTALL | re.MULTILINE)
 
@@ -202,24 +272,22 @@ orders = []
 # Check if we have matching certifications before processing
 if len(applicable_certifications) != len(order_blocks):
     print(f"Warning: Length mismatch! Order blocks: {len(order_blocks)}, Certifications: {len(applicable_certifications)}")
-    raise ValueError("The number of order blocks and applicable certifications do not match")
-
+    use_cert_map = True
+else:
+    use_cert_map = False
 for block_idx, block in enumerate(order_blocks):
     block = block.strip()
     lines = block.splitlines()
     # print(f"Processing block:\n{block}\n")
-
-    # Get certification for this block (same for all sizes in this block)
-    current_certification = applicable_certifications[block_idx] if block_idx < len(applicable_certifications) else "Not found"
 
     # Extract first word as Style No
     style_no = lines[0].split()[0] if lines else "Not found"
     
     # Extract Amount value
     amount_match = re.search(r'Amount\s([\d\.,]+)', block)
-    amount = amount_match.group(1) if amount_match else "0"
+    amount_usd = amount_match.group(1) if amount_match else "Not found"
     # Convert European format to US float
-    amount_usd = str(parse_decimal(amount, locale='de_DE'))
+    amount = str(parse_decimal(amount_usd, locale='de_DE'))
     
 
     # Extract Customs no. and Color from the same line
@@ -277,6 +345,22 @@ for block_idx, block in enumerate(order_blocks):
 
     style_description = " ".join(part for part in style_description_parts if part)
     
+    # Get certification
+    if not use_cert_map:
+        current_certification = applicable_certifications[block_idx] if block_idx < len(applicable_certifications) else "Not found"
+        # print(f"[DEBUG] Block {block_idx}: Using index-based cert → {current_certification}")
+    else:
+        current_certification = cert_map.get(style_description, "Not found")
+        # print(f"[DEBUG] Block {block_idx}: Style Description = '{style_description}' | Mapped Cert = '{current_certification}'")
+
+        if current_certification == "Not found":
+            # fallback: partial match
+            for desc, certs in cert_map.items():
+                if desc in style_description:
+                    current_certification = certs
+                    # print(f"[DEBUG] Block {block_idx}: Fallback partial match → '{desc}' → '{certs}'")
+                    break
+        # print(f"[DEBUG] Final mapping for Block {block_idx}: Style No = {style_no}, Style Desc = '{style_description}', Certification = '{current_certification}'")
     # Find the line starting with "Size" and the next line starting with "Qty"
     size_line = ""
     qty_line = ""
@@ -292,25 +376,52 @@ for block_idx, block in enumerate(order_blocks):
         sizes = size_line.split()[1:]
         
         # Extract quantities (skip the first word "Qty")
-        quantities = qty_line.split()[1:]
+        quantities_raw = qty_line.split()[1:]
+        quantities = [str(parse_decimal(qty, locale='de_DE')) for qty in quantities_raw]
 
     # Store as dict - one row per size
     for size, qty in zip(sizes, quantities):
         orders.append({
+            'Order Number': order_number,
+            'Buy-from Vendor No': buy_from_vendor_no,
+            'Order Date': order_date,
+            'Purchaser': purchaser,
+            'Email': email,
+            'Phone No': phone_no,
+            'Payment Terms': payment_terms,
+            'Payment Method': payment_method,
+            'Shipment Method': shipment_method,
+            'Transport Method': transport_method,
+            'Shipping Agent Code': shipping_agent_code,
+            'Port of Departure': port_of_departure,
+            'Shipment Date ETD': shipment_date_etd,
+            'Cost Center': cost_center,
+            'Ship-to Address': ship_to_address,
+            'Buying House Address': buying_house_address,
+            'Agency to Address': agency_to_address,
+            'Agency to Address Details': agency_full_address,
+            'Unit': unit,
+            'Currency': currency,
             'Style No': style_no,
             'Style Description': style_description,
             'Applicable Certifications': current_certification,
             'Customs No': customs_no,
-            'Amount USD': amount_usd,
             'Shipment FOB Date': shipment_fob_date,
             'Color': color,
-            'Total Quantity': total_quantity,
-            'Price': price,
             'Size': size,
-            'Qty': qty
+            'Qty': qty,
+            'Price': price,
+            'Total Quantity': total_quantity,
+            'Amount': amount,
+            "Total Pieces": total_pieces,
+            "Total USD": total_usd,
         })
 
 # Convert to DataFrame
 orders_df = pd.DataFrame(orders)
 print(f"Extracted Orders DataFrame:\n{orders_df}")
+# # Save to Excel
+# output_excel = os.path.join(pdf_dir, f"{os.path.splitext(filename)[0]}_orders.xlsx")
+# orders_df.to_excel(output_excel, index=False)
+# print(f"Extracted orders saved to {output_excel}")
 
