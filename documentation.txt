@@ -1,0 +1,627 @@
+PDF Extraction Script – Technical Documentation
+(Generated on request; reflects ONLY behaviors explicitly present in the provided code.)
+
+====================================================================
+PRE-PROCESSING & PAGE HANDLING
+====================================================================
+
+### Page Header/Footer Cleaning
+**Implementation:** The script concatenates raw text from every page into `all_text`. For a cleaned body, it removes a header that matches `^\*\d{2}B\d+\*$`, skips the immediate next line starting with `Order ` (while `in_header`), and drops footer lines matching `^Page \d+ of \d+$`. Remaining lines are joined into per-page bodies and combined as `body_text`.
+- Code:
+  - Header pattern: `header_pattern = re.compile(r'^\*\d{2}B\d+\*$')`
+  - Skip rule while `in_header` until a line starts with `'Order '`
+  - Footer skip: `re.match(r'^Page \d+ of \d+$', line.strip())`
+  - Accumulators: `all_text`, `all_pages_body`, `body_text`
+
+**Example Input:** 
+*05B00041981*
+Order PO112927
+... (content) ...
+Page 1 of 3
+
+**Example Output:** 
+The header `*05B00041981*` and footer `Page 1 of 3` are excluded from `body_text`; the interior lines are kept.
+
+**Handling Notes:** 
+- `all_text` keeps all raw lines (including headers/footers). 
+- `body_text` is cleaned per rules above.
+- Header removal is triggered only when a line matches the exact pattern and only affects skipping until an `Order ` line is found.
+
+--------------------------------------------------------------------
+
+### Order Details Capture Window (`order_details_text`)
+**Implementation:** The script captures a contiguous subset of `body_text` lines into `order_details_text` based on these switches:
+- Start capture when encountering either:
+  1) The exact sentence: `"This document contains certified products. Please see table below for details."`, or
+  2) If not yet captured, any line containing `"shipment FOB date"`.
+- Stop capture when a line contains `"Applicable Certifications"`.
+- Additionally, if `"Applicable Certifications"` is not present anywhere, pre-compute the last line index containing `"Total USD"` and stop capturing after passing that index.
+- Only non-empty stripped lines are appended.
+
+**Example Input:** 
+This document contains certified products. Please see table below for details.
+NORMA030 Womens Polo shortsleeve "GOTS + shipment FOB date 15. September 2025 Price 5,20
+Fairtrade"
+grey Customs no.: 6106 1000 00
+INTERNAT1
+Size XS S M L XL XXL 3XL 4XL 5XL
+Qty 860 4.630 6.120 4.980 3.120 1.420 480 240 215
+Total USD 12.345,67
+Applicable Certifications
+
+**Example Output:** 
+order_details_text contains the block from the line after the start trigger through the line with `Total USD 12.345,67` (stopping before `Applicable Certifications`).
+
+**Handling Notes:** 
+- If the explicit start sentence is missing, first line containing `"shipment FOB date"` starts capture.
+- If `"Applicable Certifications"` never appears, the precomputed last `"Total USD"` index limits capture.
+- Empty lines are ignored; only non-empty `.strip()` lines are kept.
+
+====================================================================
+CAMEL0T TABLE PARSING (ADDRESSES)
+====================================================================
+
+### Initial Camelot Extraction
+**Implementation:** Run once per file with stream flavor on all pages: 
+`tables = camelot.read_pdf(pdf_path, pages='all', flavor='stream')`
+Store dataframes in `camelot_tables = [table.df for table in tables]`.
+
+**Example Input:** 
+(PDF tables with a two-column layout containing "Ship-to Address" and "Agency" headers.)
+
+**Example Output:** 
+`camelot_tables` is a list of pandas DataFrames mirroring extracted tables.
+
+**Handling Notes:** 
+- No lattice flavor used; uses `stream` only.
+- No table area or column hints are provided in code.
+
+--------------------------------------------------------------------
+
+### Address Extraction (Standard Position)
+**Implementation:** Iterate `camelot_tables` for a table with at least 2 columns; if the first cell (row 0, col 0) contains `"Ship-to Address"`, then:
+- `ship_to_address = df.iloc[1, 0].strip()`
+- `agency_to_address = df.iloc[1, 1].strip()`
+- `buying_house_address` = newline-joined non-empty values from column 0, rows 2..end
+- `agency_full_address` = newline-joined non-empty values from column 1, rows 2..end
+Stop after first such table.
+
+**Example Input:** 
+┌─────────────────────┬─────────────────────┐
+│ Ship-to Address     │ Agency              │
+│ ABC Imports GmbH    │ XYZ Agency Ltd.     │
+│ Line 1              │ Line A              │
+│ Line 2              │ Line B              │
+└─────────────────────┴─────────────────────┘
+
+**Example Output:** 
+- Ship-to Address: `ABC Imports GmbH`
+- Agency to Address: `XYZ Agency Ltd.`
+- Buying House Address: `Line 1\nLine 2`
+- Agency to Address Details: `Line A\nLine B`
+
+**Handling Notes:** 
+- Requires `df.shape[1] >= 2` and `"Ship-to Address"` in the first cell.
+- Sets a `found_address` flag to prevent fallback search.
+
+--------------------------------------------------------------------
+
+### Address Extraction (Fallback Search)
+**Implementation:** If not found in the standard position:
+- Search every cell of every table for a value containing `"Ship-to Address"`.
+- When found at `(row_idx, col_idx)`:
+  - `ship_to_address = df.iloc[row_idx + 1, col_idx]` (if exists)
+  - `buying_house_address` = newline-joined non-empty values from same column rows `(row_idx + 2)..end`
+  - In the same row, search other columns for a header containing `"Agency"`:
+    - `agency_to_address = df.iloc[row_idx + 1, agency_col]` (if exists)
+    - `agency_full_address` = newline-joined non-empty values from that `agency_col` rows `(row_idx + 2)..end`
+- Mark `found_address = True` and stop further scans.
+
+**Example Input:** 
+A table where `"Ship-to Address"` appears in row 3, column 2, with address lines in subsequent rows.
+
+**Example Output:** 
+Fields populated based on the discovered coordinates and subsequent rows.
+
+**Handling Notes:** 
+- If indices would be out of range, code sets the unavailable value to `"Not found"` only for `agency_to_address` in that specific conditional; other out-of-range scenarios fall through without explicit guards.
+- The code prints a console message indicating the table/row/column when found (only in fallback path).
+
+====================================================================
+COMMON / SHARED FIELD EXTRACTIONS (from all_text)
+====================================================================
+
+### Order Number
+**Implementation:** `re.search(r"Order\s*([A-Za-z0-9]+)", all_text)` → assign group(1) or `"Not found"`.
+
+**Example Input:** 
+Order PO112927 Date 15-08-2025
+
+**Example Output:** 
+PO112927
+
+**Handling Notes:** 
+- Captures only the first alphanumeric token following the word `Order`.
+
+--------------------------------------------------------------------
+
+### Buy-from Vendor No
+**Implementation:** `re.search(r"Buy-from Vendor No\.?\s*([0-9]+)", all_text)`
+
+**Example Input:** 
+Buy-from Vendor No. 54321
+
+**Example Output:** 
+54321
+
+**Handling Notes:** 
+- Optional period after `No` is supported.
+
+--------------------------------------------------------------------
+
+### Order Date
+**Implementation:** `re.search(r"Order Date\s*([0-9]{2}-[0-9]{2}-[0-9]{4})", all_text)`
+
+**Example Input:** 
+Order Date 15-08-2025
+
+**Example Output:** 
+15-08-2025
+
+**Handling Notes:** 
+- Enforces `DD-MM-YYYY` with two digits for day and month.
+
+--------------------------------------------------------------------
+
+### Purchaser
+**Implementation:** `re.search(r"Purchaser\s*([^\n\d]+)", all_text)` → `.strip()`
+
+**Example Input:** 
+Purchaser John Smith
+
+**Example Output:** 
+John Smith
+
+**Handling Notes:** 
+- Stops before any digit; reads to newline.
+
+--------------------------------------------------------------------
+
+### E-Mail
+**Implementation:** `re.search(r"E-Mail\s*([^\n@]+@)", all_text)` then strip and remove trailing `@`, finally append `"@brands-fashion.com"`.
+- If no match → `"Not found"`.
+
+**Example Input:** 
+E-Mail jane.doe@
+
+**Example Output:** 
+jane.doe@brands-fashion.com
+
+**Handling Notes:** 
+- Domain is hardcoded to `@brands-fashion.com`.
+
+--------------------------------------------------------------------
+
+### Phone No
+**Implementation:** `re.search(r"Phone No\.?\s*([+\d\-\(\)\s]+)", all_text)`
+
+**Example Input:** 
+Phone No. +49 (89) 123-4567
+
+**Example Output:** 
++49 (89) 123-4567
+
+**Handling Notes:** 
+- Allows digits, plus, spaces, dashes, and parentheses.
+
+--------------------------------------------------------------------
+
+### Payment Terms
+**Implementation:** `re.search(r"Payment Terms\s*([^\n]+)", all_text)`
+
+**Example Input:** 
+Payment Terms Net 30 days
+
+**Example Output:** 
+Net 30 days
+
+**Handling Notes:** 
+- Captures through end-of-line.
+
+--------------------------------------------------------------------
+
+### Payment Method
+**Implementation:** `re.search(r"Payment Method\s*([^\n]+)", all_text)`
+
+**Example Input:** 
+Payment Method Bank Transfer
+
+**Example Output:** 
+Bank Transfer
+
+**Handling Notes:** 
+- Captures through end-of-line.
+
+--------------------------------------------------------------------
+
+### Shipment Method
+**Implementation:** `re.search(r"Shipment Method\s*([^\n]+)", all_text)`
+
+**Example Input:** 
+Shipment Method Sea Freight
+
+**Example Output:** 
+Sea Freight
+
+**Handling Notes:** 
+- Captures through end-of-line.
+
+--------------------------------------------------------------------
+
+### Transport Method
+**Implementation:** `re.search(r"Transport Method\s*([^\n]+)", all_text)`
+
+**Example Input:** 
+Transport Method FCL
+
+**Example Output:** 
+FCL
+
+**Handling Notes:** 
+- Captures through end-of-line.
+
+--------------------------------------------------------------------
+
+### Shipping Agent Code
+**Implementation:** `re.search(r"Shipping Agent Code\s*([^\n]+)", all_text)`
+
+**Example Input:** 
+Shipping Agent Code DHL-EXP
+
+**Example Output:** 
+DHL-EXP
+
+**Handling Notes:** 
+- Captures through end-of-line.
+
+--------------------------------------------------------------------
+
+### Port of Departure
+**Implementation:** `re.search(r"Port of Departure\s*([^\n]+)", all_text)`
+
+**Example Input:** 
+Port of Departure Chittagong
+
+**Example Output:** 
+Chittagong
+
+**Handling Notes:** 
+- Captures through end-of-line.
+
+--------------------------------------------------------------------
+
+### Shipment Date ETD
+**Implementation:** `re.search(r"Shipment Date ETD\s*([0-9]{1,2}-[0-9]{2}-[0-9]{4})", all_text)`
+
+**Example Input:** 
+Shipment Date ETD 5-09-2025
+
+**Example Output:** 
+5-09-2025
+
+**Handling Notes:** 
+- Day may be 1 or 2 digits.
+
+--------------------------------------------------------------------
+
+### Cost Center
+**Implementation:** `re.search(r"Cost Center\s*([^\n]+)", all_text)`
+
+**Example Input:** 
+Cost Center CC-789
+
+**Example Output:** 
+CC-789
+
+**Handling Notes:** 
+- Captures through end-of-line.
+
+--------------------------------------------------------------------
+
+### Unit (from “Total ... UNIT”)
+**Implementation:** `re.search(r"Total\s*[\d\.,]+\s*([A-Za-z]+)", all_text)` → group(1) or `"Not found"`
+
+**Example Input:** 
+Total 3.500 PCS
+
+**Example Output:** 
+PCS
+
+**Handling Notes:** 
+- Expects letters after a numeric total; ignores locale in this step.
+
+--------------------------------------------------------------------
+
+### Currency (from “Amount ... CURR”)
+**Implementation:** `re.search(r"Amount\s*[\d\.,]+\s*([A-Za-z]+)", all_text)` → group(1) or `None` → later stored as `"Currency"` with possible `None`
+
+**Example Input:** 
+Amount 12.345,67 USD
+
+**Example Output:** 
+USD
+
+**Handling Notes:** 
+- Captures only letters immediately after an amount in `all_text` (not order block).
+
+--------------------------------------------------------------------
+
+### Total PIECES (localized number)
+**Implementation:** `re.search(r"Total PIECES\s*([\d\.,]+)", all_text)`; on match, convert with `parse_decimal(..., locale='de_DE')`, then `str(...)`
+
+**Example Input:** 
+Total PIECES 12.345
+
+**Example Output:** 
+12345
+
+**Handling Notes:** 
+- Uses German locale: `.` as thousands separator, `,` as decimal separator.
+
+--------------------------------------------------------------------
+
+### Total USD (localized number)
+**Implementation:** `re.search(r"Total USD\s*([\d\.,]+)", all_text)`; on match, convert with `parse_decimal(..., locale='de_DE')`, then `str(...)`
+
+**Example Input:** 
+Total USD 12.345,67
+
+**Example Output:** 
+12345.67
+
+**Handling Notes:** 
+- German locale parsing as above.
+
+====================================================================
+GROUPED / PER-ORDER-BLOCK EXTRACTIONS (from order_details_text)
+====================================================================
+
+### Order Block Segmentation
+**Implementation:** Find all non-overlapping blocks starting at the block’s first line through the first line that starts with `Amount` including a trailing currency word:
+Pattern: `re.findall(r'^(.*?Amount\s[\d\.,]+\s*\w*)', order_details_text, re.DOTALL | re.MULTILINE)`
+
+**Example Input:** 
+NORMA030 Womens Polo shortsleeve "GOTS + shipment FOB date 15. September 2025 Price 5,20
+Fairtrade"
+grey Customs no.: 6106 1000 00
+INTERNAT1
+Size XS S M L XL XXL 3XL 4XL 5XL
+Qty 860 4.630 6.120 4.980 3.120 1.420 480 240 215
+Amount 25.000 USD
+
+**Example Output:** 
+One order block consisting of the lines above (up to and including `Amount 25.000 USD`).
+
+**Handling Notes:** 
+- The terminating `Amount` line must contain a trailing word (currency-like) due to `\s*\w*`.
+- `re.DOTALL` allows multi-line blocks; `re.MULTILINE` anchors `^` across lines.
+
+--------------------------------------------------------------------
+
+### Style No
+**Implementation:** First token of the first line of the block:
+`style_no = lines[0].split()[0] if lines else "Not found"`
+
+**Example Input:** 
+NORMA030 Womens Polo ...
+
+**Example Output:** 
+NORMA030
+
+**Handling Notes:** 
+- Relies on non-empty first line.
+
+--------------------------------------------------------------------
+
+### Amount (localized number)
+**Implementation:** Within a block: 
+- `amount_match = re.search(r'Amount\s([\d\.,]+)', block)` → `amount_usd`
+- Convert with `parse_decimal(amount_usd, locale='de_DE')` → `amount` (string)
+
+**Example Input:** 
+Amount 25.000
+
+**Example Output:** 
+25000
+
+**Handling Notes:** 
+- Parses German-formatted amounts.
+- Currency itself is not taken from the block here (overall currency is taken from `all_text`).
+
+--------------------------------------------------------------------
+
+### Customs No & Color (same line parsing)
+**Implementation:** Search the block for a line containing Customs number; capture any text before as Color:
+Pattern: `re.search(r'([^\n]*?)\bCustoms\s+no\.?\s*:\s*([\d ]+)', block, re.IGNORECASE)`
+- If match: 
+  - `color = group(1).strip()`
+  - `customs_no = group(2).strip()`
+- Else: both `"Not found"`
+
+**Example Input:** 
+grey Customs no.: 6106 1000 00
+
+**Example Output:** 
+- Color: `grey`
+- Customs No: `6106 1000 00`
+
+**Handling Notes:** 
+- Case-insensitive; optional period after `no` is allowed.
+- Customs digits may include spaces.
+
+--------------------------------------------------------------------
+
+### Shipment FOB Date
+**Implementation:** `re.search(r'shipment\s+FOB\s+date\s+(\d{1,2}\.\s+\w+\s+\d{4})', block)`
+- If match: `shipment_fob_date = group(1).strip()` else `"Not found"`
+
+**Example Input:** 
+shipment FOB date 15. September 2025
+
+**Example Output:** 
+15. September 2025
+
+**Handling Notes:** 
+- Expects day + dot, month name word, and 4-digit year.
+
+--------------------------------------------------------------------
+
+### Price (localized number)
+**Implementation:** `re.search(r'Price\s*:?\s*([\d\.,]+)', block, re.IGNORECASE)` → convert with `parse_decimal(..., 'de_DE')`
+
+**Example Input:** 
+Price 5,20
+
+**Example Output:** 
+5.2
+
+**Handling Notes:** 
+- Optional colon after `Price`.
+- German locale parsing.
+
+--------------------------------------------------------------------
+
+### Total Quantity (localized number)
+**Implementation:** `re.search(r'Total\s([\d\.,]+)', block)` → convert with `parse_decimal(..., 'de_DE')`
+
+**Example Input:** 
+Total 21.066
+
+**Example Output:** 
+21066
+
+**Handling Notes:** 
+- Captures the first occurrence of `Total` number in the block (distinct from global Total PIECES/USD).
+
+--------------------------------------------------------------------
+
+### Style Description (multi-line assembly)
+**Implementation:** 
+- Take first line, drop the style number token.
+- From that remainder, take substring **before** `shipment FOB date` (case-insensitive) if present; else take the whole remainder.
+- Append subsequent lines **until** a line that matches `Customs\s+no` (case-insensitive).
+- Join all collected parts with spaces; trim empty parts.
+
+**Example Input:** 
+NORMA030 Womens Polo shortsleeve "GOTS + shipment FOB date 15. September 2025 Price 5,20
+Fairtrade"
+grey Customs no.: 6106 1000 00
+
+**Example Output:** 
+Womens Polo shortsleeve "GOTS +  
+Fairtrade"
+
+(Which, after spaces normalized by the join, results in: `Womens Polo shortsleeve "GOTS + Fairtrade"`)
+
+**Handling Notes:** 
+- The cut before `shipment FOB date` ensures the date and subsequent tokens are not included from the first line.
+- Subsequent lines are appended until a Customs line is encountered.
+
+--------------------------------------------------------------------
+
+### Applicable Certifications (global list)
+**Implementation:** 
+- Global capture: `re.findall(r"Certifications:\s*(.+)", all_text)`
+- Each captured string is stripped and appended to `applicable_certifications` if non-empty.
+
+**Example Input:** 
+Certifications: GOTS
+Certifications: Fairtrade Cotton
+
+**Example Output:** 
+["GOTS", "Fairtrade Cotton"]
+
+**Handling Notes:** 
+- Only collects the text on the same line after `Certifications:`.
+
+--------------------------------------------------------------------
+
+### Style-to-Certification Map
+**Implementation:** 
+- Pattern iterator across `all_text`: `re.finditer(r'([^\n]+)\nCertifications:\s*(.+)', all_text)`
+- For each match:
+  - `style_desc_full = match.group(1).strip()`
+  - `style_desc = " ".join(style_desc_full.split()[1:])` (drops the **first token** of that line)
+  - `cert_map[style_desc] = match.group(2).strip()`
+
+**Example Input:** 
+NORMA030 Womens Polo
+Certifications: GOTS
+
+**Example Output:** 
+{ "Womens Polo": "GOTS" }
+
+**Handling Notes:** 
+- The map key removes the first token (assumed style no.).
+
+--------------------------------------------------------------------
+
+### Certification Selection for Each Order Block
+**Implementation:** 
+- `order_blocks` vs `applicable_certifications` length check:
+  - If lengths differ → `use_cert_map = True` (warning printed); else `False`.
+- If `use_cert_map` is `False`:
+  - Use `applicable_certifications[block_idx]` for the block.
+- If `use_cert_map` is `True`:
+  - Use `cert_map.get(style_description, "Not found")`
+  - If `"Not found"`, attempt partial match: for each `(desc, certs)` in `cert_map`, if `desc in style_description`, take `certs`.
+
+**Example Input:** 
+- `order_blocks` length: 1
+- `applicable_certifications`: ["GOTS", "Fairtrade Cotton"] (mismatch → map path)
+- `style_description`: `Womens Polo shortsleeve "GOTS + Fairtrade"`
+- `cert_map`: { "Womens Polo shortsleeve \"GOTS + Fairtrade\"": "GOTS" }
+
+**Example Output:** 
+`current_certification = "GOTS"`
+
+**Handling Notes:** 
+- Index-based selection if lengths match; map/partial-match fallback if they don’t.
+
+--------------------------------------------------------------------
+
+### Size/Quantity Lines
+**Implementation:** 
+- Scan block lines; record the line starting with `Size` and the next line starting with `Qty`.
+- `sizes = size_line.split()[1:]`
+- `quantities_raw = qty_line.split()[1:]`
+- `quantities = [str(parse_decimal(qty, locale='de_DE')) for qty in quantities_raw]`
+
+**Example Input:** 
+Size XS S M L XL XXL 3XL 4XL 5XL
+Qty 860 4.630 6.120 4.980 3.120 1.420 480 240 215
+
+**Example Output:** 
+- Sizes: `['XS','S','M','L','XL','XXL','3XL','4XL','5XL']`
+- Quantities: `['860','4630','6120','4980','3120','1420','480','240','215']`
+
+**Handling Notes:** 
+- Requires both a `Size` line and a `Qty` line to proceed.
+- Quantities are parsed in German locale.
+
+--------------------------------------------------------------------
+
+### Row Emission (Orders List)
+**Implementation:** 
+For each `(size, qty)` pair (zipped) in a block, append a dict to `orders` containing all common fields plus block-specific fields:
+- Keys include: `Order Number`, `Buy-from Vendor No`, `Order Date`, `Purchaser`, `Email`, `Phone No`, `Payment Terms`, `Payment Method`, `Shipment Method`, `Transport Method`, `Shipping Agent Code`, `Port of Departure`, `Shipment Date ETD`, `Cost Center`, `Ship-to Address`, `Buying House Address`, `Agency to Address`, `Agency to Address Details`, `Unit`, `Currency`, `Style No`, `Style Description`, `Applicable Certifications`, `Customs No`, `Shipment FOB Date`, `Color`, `Size`, `Qty`, `Price`, `Total Quantity`, `Amount`, `Total Pieces`, `Total USD`.
+
+**Example Input:** 
+Sizes and quantities as above; common fields already extracted; block fields extracted as shown previously.
+
+**Example Output:** 
+One row per size (e.g., 9 rows for 9 sizes), each with the same shared values and block-specific values, and per-size `Size` and `Qty`.
+
+**Handling Notes:** 
+- If size/qty counts mismatch, `zip` truncates to the shortest; no explicit warning is issued.
+- Missing fields are set to `"Not found"` or `None` as per prior extraction logic.

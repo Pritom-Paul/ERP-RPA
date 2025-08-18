@@ -379,6 +379,10 @@ for block_idx, block in enumerate(order_blocks):
         quantities_raw = qty_line.split()[1:]
         quantities = [str(parse_decimal(qty, locale='de_DE')) for qty in quantities_raw]
 
+        # Check for length mismatch
+        if len(sizes) != len(quantities):
+            raise ValueError(f"Size and quantity count mismatch. Found {len(sizes)} sizes but {len(quantities)} quantities.")
+
     # Store as dict - one row per size
     for size, qty in zip(sizes, quantities):
         orders.append({
