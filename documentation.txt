@@ -1,627 +1,281 @@
-PDF Extraction Script – Technical Documentation
-(Generated on request; reflects ONLY behaviors explicitly present in the provided code.)
+# PDF Extraction Code - Technical Documentation
 
-====================================================================
-PRE-PROCESSING & PAGE HANDLING
-====================================================================
+## Extraction Architecture Overview
 
-### Page Header/Footer Cleaning
-**Implementation:** The script concatenates raw text from every page into `all_text`. For a cleaned body, it removes a header that matches `^\*\d{2}B\d+\*$`, skips the immediate next line starting with `Order ` (while `in_header`), and drops footer lines matching `^Page \d+ of \d+$`. Remaining lines are joined into per-page bodies and combined as `body_text`.
-- Code:
-  - Header pattern: `header_pattern = re.compile(r'^\*\d{2}B\d+\*$')`
-  - Skip rule while `in_header` until a line starts with `'Order '`
-  - Footer skip: `re.match(r'^Page \d+ of \d+$', line.strip())`
-  - Accumulators: `all_text`, `all_pages_body`, `body_text`
+**Implementation**: The script employs a dual text extraction approach combining **pdfplumber** for general content extraction and **PyPDF** for layout-sensitive data processing. The system processes PDF files through a multi-stage pipeline: initial text extraction → header/footer cleaning → field extraction using regex patterns → table parsing via Camelot → size/quantity mapping through PyPDF → data validation → Excel output generation.
 
-**Example Input:** 
-*05B00041981*
-Order PO112927
-... (content) ...
-Page 1 of 3
+**Data Processing Pipeline**: 
+1. Directory scanning for PDF files
+2. Parallel text extraction (pdfplumber for content, PyPDF for layout)
+3. Page-level header/footer removal using regex patterns
+4. Field extraction through compiled regex patterns
+5. Table extraction using Camelot stream flavor
+6. Size/quantity alignment using column position analysis
+7. Data validation with length matching requirements
+8. DataFrame construction and Excel export
 
-**Example Output:** 
-The header `*05B00041981*` and footer `Page 1 of 3` are excluded from `body_text`; the interior lines are kept.
+---
 
-**Handling Notes:** 
-- `all_text` keeps all raw lines (including headers/footers). 
-- `body_text` is cleaned per rules above.
-- Header removal is triggered only when a line matches the exact pattern and only affects skipping until an `Order ` line is found.
+## Page Processing
 
---------------------------------------------------------------------
+### Text Extraction Implementation
 
-### Order Details Capture Window (`order_details_text`)
-**Implementation:** The script captures a contiguous subset of `body_text` lines into `order_details_text` based on these switches:
-- Start capture when encountering either:
-  1) The exact sentence: `"This document contains certified products. Please see table below for details."`, or
-  2) If not yet captured, any line containing `"shipment FOB date"`.
-- Stop capture when a line contains `"Applicable Certifications"`.
-- Additionally, if `"Applicable Certifications"` is not present anywhere, pre-compute the last line index containing `"Total USD"` and stop capturing after passing that index.
-- Only non-empty stripped lines are appended.
+**Implementation**: The script uses `pdfplumber.open()` to extract raw text from each page via `page.extract_text()`, accumulating content in the `all_text` variable. Simultaneously, it processes each page through a header/footer cleaning mechanism.
 
-**Example Input:** 
-This document contains certified products. Please see table below for details.
-NORMA030 Womens Polo shortsleeve "GOTS + shipment FOB date 15. September 2025 Price 5,20
-Fairtrade"
-grey Customs no.: 6106 1000 00
-INTERNAT1
-Size XS S M L XL XXL 3XL 4XL 5XL
-Qty 860 4.630 6.120 4.980 3.120 1.420 480 240 215
-Total USD 12.345,67
-Applicable Certifications
+**Example Input/Output**:
+- **Input**: PDF page containing "*05B00041981*\nOrder 12345\nPage 1 of 3\nActual content..."
+- **Output**: `all_text` contains "Actual content..." with headers removed
 
-**Example Output:** 
-order_details_text contains the block from the line after the start trigger through the line with `Total USD 12.345,67` (stopping before `Applicable Certifications`).
+**Handling Notes**: The script maintains two text streams: `all_text` for complete raw content and `all_pages_body` for cleaned page content. The `header_pattern = re.compile(r'^\*\d{2}B\d+\*$')` identifies headers like "*05B00041981*".
 
-**Handling Notes:** 
-- If the explicit start sentence is missing, first line containing `"shipment FOB date"` starts capture.
-- If `"Applicable Certifications"` never appears, the precomputed last `"Total USD"` index limits capture.
-- Empty lines are ignored; only non-empty `.strip()` lines are kept.
+### Header and Footer Removal Logic
 
-====================================================================
-CAMEL0T TABLE PARSING (ADDRESSES)
-====================================================================
+**Implementation**: The script processes each page line-by-line using state tracking via the `in_header` boolean flag. Lines matching the header pattern trigger header mode, which continues until encountering a line starting with "Order ".
 
-### Initial Camelot Extraction
-**Implementation:** Run once per file with stream flavor on all pages: 
-`tables = camelot.read_pdf(pdf_path, pages='all', flavor='stream')`
-Store dataframes in `camelot_tables = [table.df for table in tables]`.
+**Handling Notes**: 
+- Lines matching `r'^Page \d+ of \d+$'` are completely filtered out
+- Header detection uses the pattern `^\*\d{2}B\d+\*$`
+- Header mode terminates when encountering lines starting with "Order "
+- The `page_body_lines` list accumulates cleaned content per page
 
-**Example Input:** 
-(PDF tables with a two-column layout containing "Ship-to Address" and "Agency" headers.)
+---
 
-**Example Output:** 
-`camelot_tables` is a list of pandas DataFrames mirroring extracted tables.
+## Size and Quantity Extraction (PyPDF Implementation)
 
-**Handling Notes:** 
-- No lattice flavor used; uses `stream` only.
-- No table area or column hints are provided in code.
+### Layout-Preserved Text Extraction
 
---------------------------------------------------------------------
+**Implementation**: The `extract_pdf_text_preserve_layout()` function uses `PdfReader` from PyPDF with `extraction_mode="layout"` and `keep_blank_chars=True` parameters to maintain spatial positioning of text elements.
 
-### Address Extraction (Standard Position)
-**Implementation:** Iterate `camelot_tables` for a table with at least 2 columns; if the first cell (row 0, col 0) contains `"Ship-to Address"`, then:
+**Example Input/Output**:
+- **Input**: PDF with columnar size/quantity data
+- **Output**: `pages_text` dictionary mapping page numbers to layout-preserved text strings
+
+### Token Column Position Analysis
+
+**Implementation**: The `tokens_with_cols()` function uses `re.finditer(r"\S+", line)` to extract non-whitespace tokens along with their starting column positions via `m.start()`.
+
+**Example Input/Output**:
+- **Input**: "Size    XS    S     M     L"
+- **Output**: `[('Size', 0), ('XS', 8), ('S', 14), ('M', 20), ('L', 26)]`
+
+### Size-Quantity Mapping Algorithm
+
+**Implementation**: The `extract_size_qty_mappings()` function uses the regex pattern `r"(Size[^\n]+)\n\s*(Qty[^\n]+)"` to identify size-quantity table pairs. It implements two mapping strategies:
+
+1. **Direct Mapping** (when `len(size_tokens) == len(qty_tokens)`): Direct index-based pairing
+2. **Column Alignment** (when lengths differ): Spatial positioning using column ranges
+
+**Handling Notes**: 
+- Quantity values undergo normalization: `norm = q_tok.replace('.', '').replace(',', '')`
+- Non-numeric quantities default to 0
+- Column ranges calculated as midpoints between adjacent size positions
+- The function returns a list of dictionaries mapping sizes to quantities
+
+---
+
+## Field Extraction Implementation
+
+### Order Header Fields
+
+**Implementation**: All header fields use `re.search()` with specific patterns and capture groups:
+
+| Field | Regex Pattern | Capture Group | Fallback |
+|-------|---------------|---------------|----------|
+| **Order Number** | `r"Order\s*([A-Za-z0-9]+)"` | Group 1 | "Not found" |
+| **Buy-from Vendor No** | `r"Buy-from Vendor No\.?\s*([0-9]+)"` | Group 1 | "Not found" |
+| **Order Date** | `r"Order Date\s*([0-9]{2}-[0-9]{2}-[0-9]{4})"` | Group 1 | "Not found" |
+| **Purchaser** | `r"Purchaser\s*([^\n\d]+)"` | Group 1 (stripped) | "Not found" |
+
+**Example Input/Output**:
+- **Input**: "Order ABC123 Buy-from Vendor No. 456789"
+- **Output**: `order_number = "ABC123"`, `buy_from_vendor_no = "456789"`
+
+### Email Field Special Processing
+
+**Implementation**: Email extraction uses a two-step process:
+1. Pattern: `r"E-Mail\s*([^\n@]+@)"` captures prefix before @ symbol
+2. Post-processing: Removes trailing '@' and appends "@brands-fashion.com"
+
+**Example Input/Output**:
+- **Input**: "E-Mail john.doe@"
+- **Output**: `email = "john.doe@brands-fashion.com"`
+
+**Handling Notes**: If no match found, defaults to "Not found"
+
+### Numeric Field Processing with Locale Support
+
+**Implementation**: Total pieces and Total USD use `parse_decimal()` with `locale='de_DE'` for European number format conversion:
+
+| Field | Pattern | Processing |
+|-------|---------|------------|
+| **Total Pieces** | `r"Total PIECES\s*([\d\.,]+)"` | `parse_decimal(match, locale='de_DE')` |
+| **Total USD** | `r"Total USD\s*([\d\.,]+)"` | `parse_decimal(match, locale='de_DE')` |
+
+**Example Input/Output**:
+- **Input**: "Total USD 1.234,56"
+- **Output**: `total_usd = "1234.56"`
+
+---
+
+## Table Parsing (Camelot Implementation)
+
+### Table Extraction Configuration
+
+**Implementation**: The script uses `camelot.read_pdf(pdf_path, pages='all', flavor='stream')` to extract all tables across all pages, storing results in `camelot_tables` as a list of DataFrames.
+
+### Address Extraction Logic
+
+**Implementation**: The script implements a two-tier search strategy for address data:
+
+#### Primary Search Strategy
+**Implementation**: Iterates through `camelot_tables` checking if first cell contains "Ship-to Address". Upon match:
 - `ship_to_address = df.iloc[1, 0].strip()`
 - `agency_to_address = df.iloc[1, 1].strip()`
-- `buying_house_address` = newline-joined non-empty values from column 0, rows 2..end
-- `agency_full_address` = newline-joined non-empty values from column 1, rows 2..end
-Stop after first such table.
+- Buying house address concatenated from rows 2+ in column 0
+- Agency full address concatenated from rows 2+ in column 1
 
-**Example Input:** 
-┌─────────────────────┬─────────────────────┐
-│ Ship-to Address     │ Agency              │
-│ ABC Imports GmbH    │ XYZ Agency Ltd.     │
-│ Line 1              │ Line A              │
-│ Line 2              │ Line B              │
-└─────────────────────┴─────────────────────┘
+#### Fallback Search Strategy
+**Implementation**: If `found_address` remains False, performs exhaustive cell-by-cell search across all tables for "Ship-to Address" text.
 
-**Example Output:** 
-- Ship-to Address: `ABC Imports GmbH`
-- Agency to Address: `XYZ Agency Ltd.`
-- Buying House Address: `Line 1\nLine 2`
-- Agency to Address Details: `Line A\nLine B`
+**Handling Notes**: The `found_address` flag prevents redundant processing. All address fields default to "Not found" if no matches discovered.
 
-**Handling Notes:** 
-- Requires `df.shape[1] >= 2` and `"Ship-to Address"` in the first cell.
-- Sets a `found_address` flag to prevent fallback search.
+---
 
---------------------------------------------------------------------
+## Order Details Processing
 
-### Address Extraction (Fallback Search)
-**Implementation:** If not found in the standard position:
-- Search every cell of every table for a value containing `"Ship-to Address"`.
-- When found at `(row_idx, col_idx)`:
-  - `ship_to_address = df.iloc[row_idx + 1, col_idx]` (if exists)
-  - `buying_house_address` = newline-joined non-empty values from same column rows `(row_idx + 2)..end`
-  - In the same row, search other columns for a header containing `"Agency"`:
-    - `agency_to_address = df.iloc[row_idx + 1, agency_col]` (if exists)
-    - `agency_full_address` = newline-joined non-empty values from that `agency_col` rows `(row_idx + 2)..end`
-- Mark `found_address = True` and stop further scans.
+### Content Capture Logic
 
-**Example Input:** 
-A table where `"Ship-to Address"` appears in row 3, column 2, with address lines in subsequent rows.
+**Implementation**: The script uses state-based line capture controlled by the `capture` boolean flag with multiple trigger conditions:
 
-**Example Output:** 
-Fields populated based on the discovered coordinates and subsequent rows.
+| Trigger Condition | Action |
+|-------------------|--------|
+| "This document contains certified products..." | Set `capture = True` |
+| "shipment FOB date" (if first trigger not found) | Set `capture = True` |
+| "Applicable Certifications" | Set `capture = False` |
+| Beyond last "Total USD" index | Set `capture = False` |
 
-**Handling Notes:** 
-- If indices would be out of range, code sets the unavailable value to `"Not found"` only for `agency_to_address` in that specific conditional; other out-of-range scenarios fall through without explicit guards.
-- The code prints a console message indicating the table/row/column when found (only in fallback path).
+**Handling Notes**: The `last_total_usd_index` provides a fallback termination point when "Applicable Certifications" text is absent.
 
-====================================================================
-COMMON / SHARED FIELD EXTRACTIONS (from all_text)
-====================================================================
+### Order Block Parsing
 
-### Order Number
-**Implementation:** `re.search(r"Order\s*([A-Za-z0-9]+)", all_text)` → assign group(1) or `"Not found"`.
+**Implementation**: Order blocks extracted using regex pattern `r'^(.*?Amount\s[\d\.,]+\s*\w*)'` with `re.DOTALL | re.MULTILINE` flags to capture multi-line content ending at "Amount" lines.
 
-**Example Input:** 
-Order PO112927 Date 15-08-2025
+**Example Input/Output**:
+- **Input**: Multi-line order block ending with "Amount 1,234.56 USD"
+- **Output**: Complete text block captured for individual field extraction
 
-**Example Output:** 
-PO112927
+---
 
-**Handling Notes:** 
-- Captures only the first alphanumeric token following the word `Order`.
+## Order Block Field Extraction
 
---------------------------------------------------------------------
+### Style and Identification Fields
 
-### Buy-from Vendor No
-**Implementation:** `re.search(r"Buy-from Vendor No\.?\s*([0-9]+)", all_text)`
+**Implementation**: Each order block undergoes systematic field extraction:
 
-**Example Input:** 
-Buy-from Vendor No. 54321
+| Field | Extraction Method | Processing |
+|-------|------------------|------------|
+| **Style No** | `lines[0].split()[0]` | First word of first line |
+| **Amount** | `r'Amount\s([\d\.,]+)'` | Decimal parsing with German locale |
+| **Color & Customs No** | `r'([^\n]*?)\bCustoms\s+no\.?\s*:\s*([\d ]+)'` | Split extraction from same line |
 
-**Example Output:** 
-54321
+### Date and Pricing Fields
 
-**Handling Notes:** 
-- Optional period after `No` is supported.
+**Implementation**: 
+- **Shipment FOB Date**: Pattern `r'shipment\s+FOB\s+date\s+(\d{1,2}\.\s+\w+\s+\d{4})'`
+- **Price**: Pattern `r'Price\s*:?\s*([\d\.,]+)'` with German locale decimal parsing
+- **Total Quantity**: Pattern `r'Total\s([\d\.,]+)'` with German locale decimal parsing
 
---------------------------------------------------------------------
+**Example Input/Output**:
+- **Input**: "shipment FOB date 15. March 2024"
+- **Output**: `shipment_fob_date = "15. March 2024"`
 
-### Order Date
-**Implementation:** `re.search(r"Order Date\s*([0-9]{2}-[0-9]{2}-[0-9]{4})", all_text)`
+### Style Description Construction
 
-**Example Input:** 
-Order Date 15-08-2025
+**Implementation**: Multi-step description assembly:
+1. Extract first line, remove style number, truncate at "shipment FOB date"
+2. Append subsequent lines until "Customs no" encountered
+3. Join all parts with spaces, filtering empty strings
 
-**Example Output:** 
-15-08-2025
+**Handling Notes**: Uses regex `r'(.*?)\bshipment\s+FOB\s+date'` for first line truncation with case-insensitive matching.
 
-**Handling Notes:** 
-- Enforces `DD-MM-YYYY` with two digits for day and month.
+---
 
---------------------------------------------------------------------
+## Certification Handling
 
-### Purchaser
-**Implementation:** `re.search(r"Purchaser\s*([^\n\d]+)", all_text)` → `.strip()`
+### Certification Extraction
 
-**Example Input:** 
-Purchaser John Smith
+**Implementation**: The script uses `re.findall(r"Certifications:\s*(.+)", all_text)` to extract all certification lines, storing results in `applicable_certifications` list after stripping whitespace.
 
-**Example Output:** 
-John Smith
+### Certification-Style Mapping
 
-**Handling Notes:** 
-- Stops before any digit; reads to newline.
+**Implementation**: Creates `cert_map` dictionary using pattern `r'([^\n]+)\nCertifications:\s*(.+)'` to associate style descriptions with certifications.
 
---------------------------------------------------------------------
+**Handling Notes**: 
+- Length comparison between `applicable_certifications` and `order_blocks` determines mapping strategy
+- If lengths match: index-based assignment
+- If lengths differ: dictionary-based lookup using style descriptions
 
-### E-Mail
-**Implementation:** `re.search(r"E-Mail\s*([^\n@]+@)", all_text)` then strip and remove trailing `@`, finally append `"@brands-fashion.com"`.
-- If no match → `"Not found"`.
+---
 
-**Example Input:** 
-E-Mail jane.doe@
+## Data Validation and Error Handling
 
-**Example Output:** 
-jane.doe@brands-fashion.com
+### Length Validation Checks
 
-**Handling Notes:** 
-- Domain is hardcoded to `@brands-fashion.com`.
+**Implementation**: The script implements multiple length validation points:
 
---------------------------------------------------------------------
+1. **Size/Quantity Lists**: `if len(sizes_list) != len(quantities_list): raise ValueError("Sizes and Quantities lists have different lengths!")`
+2. **DataFrame/Lists Alignment**: `if len(orders_df) != len(sizes_list) or len(orders_df) != len(quantities_list): raise ValueError(...)`
 
-### Phone No
-**Implementation:** `re.search(r"Phone No\.?\s*([+\d\-\(\)\s]+)", all_text)`
+**Handling Notes**: Both validations use `raise ValueError()` to terminate execution on mismatches, preventing data corruption.
 
-**Example Input:** 
-Phone No. +49 (89) 123-4567
+### Fallback Value Assignment
 
-**Example Output:** 
-+49 (89) 123-4567
+**Implementation**: All extracted fields implement consistent fallback logic:
+- Regex matches: `field = match.group(1) if match else "Not found"`
+- Numeric conversions: Try `parse_decimal()`, fallback to "Not found"
+- Address extraction: Default initialization to "Not found", conditional updates
 
-**Handling Notes:** 
-- Allows digits, plus, spaces, dashes, and parentheses.
+---
 
---------------------------------------------------------------------
+## DataFrame Construction and Output
 
-### Payment Terms
-**Implementation:** `re.search(r"Payment Terms\s*([^\n]+)", all_text)`
+### Data Structure Assembly
 
-**Example Input:** 
-Payment Terms Net 30 days
+**Implementation**: The script creates one DataFrame row per size variant, populating fixed fields identically across all rows for each order block. The loop `for i in range(len(sizes)):` generates the required number of rows.
 
-**Example Output:** 
-Net 30 days
+### Size/Quantity Assignment
 
-**Handling Notes:** 
-- Captures through end-of-line.
+**Implementation**: After DataFrame initialization with `None` values for Size/Qty columns:
+```python
+orders_df['Size'] = sizes_list
+orders_df['Qty'] = quantities_list
+```
 
---------------------------------------------------------------------
+**Handling Notes**: This assignment occurs after length validation ensures matching list sizes.
 
-### Payment Method
-**Implementation:** `re.search(r"Payment Method\s*([^\n]+)", all_text)`
+### Excel Export Implementation
 
-**Example Input:** 
-Payment Method Bank Transfer
+**Implementation**: Uses `orders_df.to_excel(output_excel, index=False)` with filename constructed as `f"{os.path.splitext(filename)[0]}_orders.xlsx"`.
 
-**Example Output:** 
-Bank Transfer
+**Handling Notes**: Output files saved in same directory as source PDFs with "_orders.xlsx" suffix. No error handling implemented for file write operations.
 
-**Handling Notes:** 
-- Captures through end-of-line.
+---
 
---------------------------------------------------------------------
+## Error Conditions and Failure Points
 
-### Shipment Method
-**Implementation:** `re.search(r"Shipment Method\s*([^\n]+)", all_text)`
+### Critical Failure Points
 
-**Example Input:** 
-Shipment Method Sea Freight
+1. **Length Mismatches**: Script terminates with `ValueError` if sizes/quantities lists have different lengths
+2. **File Access**: No error handling for PDF read failures or Excel write permissions
+3. **Regex Failures**: Silent fallback to "Not found" for all field extractions
+4. **Table Parsing**: Camelot failures result in empty table list, addresses default to "Not found"
 
-**Example Output:** 
-Sea Freight
+### Data Quality Issues
 
-**Handling Notes:** 
-- Captures through end-of-line.
+**Implementation**: The script provides no validation for:
+- Extracted field format correctness
+- Date format validation beyond regex patterns  
+- Numeric field range checking
+- Address completeness verification
 
---------------------------------------------------------------------
-
-### Transport Method
-**Implementation:** `re.search(r"Transport Method\s*([^\n]+)", all_text)`
-
-**Example Input:** 
-Transport Method FCL
-
-**Example Output:** 
-FCL
-
-**Handling Notes:** 
-- Captures through end-of-line.
-
---------------------------------------------------------------------
-
-### Shipping Agent Code
-**Implementation:** `re.search(r"Shipping Agent Code\s*([^\n]+)", all_text)`
-
-**Example Input:** 
-Shipping Agent Code DHL-EXP
-
-**Example Output:** 
-DHL-EXP
-
-**Handling Notes:** 
-- Captures through end-of-line.
-
---------------------------------------------------------------------
-
-### Port of Departure
-**Implementation:** `re.search(r"Port of Departure\s*([^\n]+)", all_text)`
-
-**Example Input:** 
-Port of Departure Chittagong
-
-**Example Output:** 
-Chittagong
-
-**Handling Notes:** 
-- Captures through end-of-line.
-
---------------------------------------------------------------------
-
-### Shipment Date ETD
-**Implementation:** `re.search(r"Shipment Date ETD\s*([0-9]{1,2}-[0-9]{2}-[0-9]{4})", all_text)`
-
-**Example Input:** 
-Shipment Date ETD 5-09-2025
-
-**Example Output:** 
-5-09-2025
-
-**Handling Notes:** 
-- Day may be 1 or 2 digits.
-
---------------------------------------------------------------------
-
-### Cost Center
-**Implementation:** `re.search(r"Cost Center\s*([^\n]+)", all_text)`
-
-**Example Input:** 
-Cost Center CC-789
-
-**Example Output:** 
-CC-789
-
-**Handling Notes:** 
-- Captures through end-of-line.
-
---------------------------------------------------------------------
-
-### Unit (from “Total ... UNIT”)
-**Implementation:** `re.search(r"Total\s*[\d\.,]+\s*([A-Za-z]+)", all_text)` → group(1) or `"Not found"`
-
-**Example Input:** 
-Total 3.500 PCS
-
-**Example Output:** 
-PCS
-
-**Handling Notes:** 
-- Expects letters after a numeric total; ignores locale in this step.
-
---------------------------------------------------------------------
-
-### Currency (from “Amount ... CURR”)
-**Implementation:** `re.search(r"Amount\s*[\d\.,]+\s*([A-Za-z]+)", all_text)` → group(1) or `None` → later stored as `"Currency"` with possible `None`
-
-**Example Input:** 
-Amount 12.345,67 USD
-
-**Example Output:** 
-USD
-
-**Handling Notes:** 
-- Captures only letters immediately after an amount in `all_text` (not order block).
-
---------------------------------------------------------------------
-
-### Total PIECES (localized number)
-**Implementation:** `re.search(r"Total PIECES\s*([\d\.,]+)", all_text)`; on match, convert with `parse_decimal(..., locale='de_DE')`, then `str(...)`
-
-**Example Input:** 
-Total PIECES 12.345
-
-**Example Output:** 
-12345
-
-**Handling Notes:** 
-- Uses German locale: `.` as thousands separator, `,` as decimal separator.
-
---------------------------------------------------------------------
-
-### Total USD (localized number)
-**Implementation:** `re.search(r"Total USD\s*([\d\.,]+)", all_text)`; on match, convert with `parse_decimal(..., locale='de_DE')`, then `str(...)`
-
-**Example Input:** 
-Total USD 12.345,67
-
-**Example Output:** 
-12345.67
-
-**Handling Notes:** 
-- German locale parsing as above.
-
-====================================================================
-GROUPED / PER-ORDER-BLOCK EXTRACTIONS (from order_details_text)
-====================================================================
-
-### Order Block Segmentation
-**Implementation:** Find all non-overlapping blocks starting at the block’s first line through the first line that starts with `Amount` including a trailing currency word:
-Pattern: `re.findall(r'^(.*?Amount\s[\d\.,]+\s*\w*)', order_details_text, re.DOTALL | re.MULTILINE)`
-
-**Example Input:** 
-NORMA030 Womens Polo shortsleeve "GOTS + shipment FOB date 15. September 2025 Price 5,20
-Fairtrade"
-grey Customs no.: 6106 1000 00
-INTERNAT1
-Size XS S M L XL XXL 3XL 4XL 5XL
-Qty 860 4.630 6.120 4.980 3.120 1.420 480 240 215
-Amount 25.000 USD
-
-**Example Output:** 
-One order block consisting of the lines above (up to and including `Amount 25.000 USD`).
-
-**Handling Notes:** 
-- The terminating `Amount` line must contain a trailing word (currency-like) due to `\s*\w*`.
-- `re.DOTALL` allows multi-line blocks; `re.MULTILINE` anchors `^` across lines.
-
---------------------------------------------------------------------
-
-### Style No
-**Implementation:** First token of the first line of the block:
-`style_no = lines[0].split()[0] if lines else "Not found"`
-
-**Example Input:** 
-NORMA030 Womens Polo ...
-
-**Example Output:** 
-NORMA030
-
-**Handling Notes:** 
-- Relies on non-empty first line.
-
---------------------------------------------------------------------
-
-### Amount (localized number)
-**Implementation:** Within a block: 
-- `amount_match = re.search(r'Amount\s([\d\.,]+)', block)` → `amount_usd`
-- Convert with `parse_decimal(amount_usd, locale='de_DE')` → `amount` (string)
-
-**Example Input:** 
-Amount 25.000
-
-**Example Output:** 
-25000
-
-**Handling Notes:** 
-- Parses German-formatted amounts.
-- Currency itself is not taken from the block here (overall currency is taken from `all_text`).
-
---------------------------------------------------------------------
-
-### Customs No & Color (same line parsing)
-**Implementation:** Search the block for a line containing Customs number; capture any text before as Color:
-Pattern: `re.search(r'([^\n]*?)\bCustoms\s+no\.?\s*:\s*([\d ]+)', block, re.IGNORECASE)`
-- If match: 
-  - `color = group(1).strip()`
-  - `customs_no = group(2).strip()`
-- Else: both `"Not found"`
-
-**Example Input:** 
-grey Customs no.: 6106 1000 00
-
-**Example Output:** 
-- Color: `grey`
-- Customs No: `6106 1000 00`
-
-**Handling Notes:** 
-- Case-insensitive; optional period after `no` is allowed.
-- Customs digits may include spaces.
-
---------------------------------------------------------------------
-
-### Shipment FOB Date
-**Implementation:** `re.search(r'shipment\s+FOB\s+date\s+(\d{1,2}\.\s+\w+\s+\d{4})', block)`
-- If match: `shipment_fob_date = group(1).strip()` else `"Not found"`
-
-**Example Input:** 
-shipment FOB date 15. September 2025
-
-**Example Output:** 
-15. September 2025
-
-**Handling Notes:** 
-- Expects day + dot, month name word, and 4-digit year.
-
---------------------------------------------------------------------
-
-### Price (localized number)
-**Implementation:** `re.search(r'Price\s*:?\s*([\d\.,]+)', block, re.IGNORECASE)` → convert with `parse_decimal(..., 'de_DE')`
-
-**Example Input:** 
-Price 5,20
-
-**Example Output:** 
-5.2
-
-**Handling Notes:** 
-- Optional colon after `Price`.
-- German locale parsing.
-
---------------------------------------------------------------------
-
-### Total Quantity (localized number)
-**Implementation:** `re.search(r'Total\s([\d\.,]+)', block)` → convert with `parse_decimal(..., 'de_DE')`
-
-**Example Input:** 
-Total 21.066
-
-**Example Output:** 
-21066
-
-**Handling Notes:** 
-- Captures the first occurrence of `Total` number in the block (distinct from global Total PIECES/USD).
-
---------------------------------------------------------------------
-
-### Style Description (multi-line assembly)
-**Implementation:** 
-- Take first line, drop the style number token.
-- From that remainder, take substring **before** `shipment FOB date` (case-insensitive) if present; else take the whole remainder.
-- Append subsequent lines **until** a line that matches `Customs\s+no` (case-insensitive).
-- Join all collected parts with spaces; trim empty parts.
-
-**Example Input:** 
-NORMA030 Womens Polo shortsleeve "GOTS + shipment FOB date 15. September 2025 Price 5,20
-Fairtrade"
-grey Customs no.: 6106 1000 00
-
-**Example Output:** 
-Womens Polo shortsleeve "GOTS +  
-Fairtrade"
-
-(Which, after spaces normalized by the join, results in: `Womens Polo shortsleeve "GOTS + Fairtrade"`)
-
-**Handling Notes:** 
-- The cut before `shipment FOB date` ensures the date and subsequent tokens are not included from the first line.
-- Subsequent lines are appended until a Customs line is encountered.
-
---------------------------------------------------------------------
-
-### Applicable Certifications (global list)
-**Implementation:** 
-- Global capture: `re.findall(r"Certifications:\s*(.+)", all_text)`
-- Each captured string is stripped and appended to `applicable_certifications` if non-empty.
-
-**Example Input:** 
-Certifications: GOTS
-Certifications: Fairtrade Cotton
-
-**Example Output:** 
-["GOTS", "Fairtrade Cotton"]
-
-**Handling Notes:** 
-- Only collects the text on the same line after `Certifications:`.
-
---------------------------------------------------------------------
-
-### Style-to-Certification Map
-**Implementation:** 
-- Pattern iterator across `all_text`: `re.finditer(r'([^\n]+)\nCertifications:\s*(.+)', all_text)`
-- For each match:
-  - `style_desc_full = match.group(1).strip()`
-  - `style_desc = " ".join(style_desc_full.split()[1:])` (drops the **first token** of that line)
-  - `cert_map[style_desc] = match.group(2).strip()`
-
-**Example Input:** 
-NORMA030 Womens Polo
-Certifications: GOTS
-
-**Example Output:** 
-{ "Womens Polo": "GOTS" }
-
-**Handling Notes:** 
-- The map key removes the first token (assumed style no.).
-
---------------------------------------------------------------------
-
-### Certification Selection for Each Order Block
-**Implementation:** 
-- `order_blocks` vs `applicable_certifications` length check:
-  - If lengths differ → `use_cert_map = True` (warning printed); else `False`.
-- If `use_cert_map` is `False`:
-  - Use `applicable_certifications[block_idx]` for the block.
-- If `use_cert_map` is `True`:
-  - Use `cert_map.get(style_description, "Not found")`
-  - If `"Not found"`, attempt partial match: for each `(desc, certs)` in `cert_map`, if `desc in style_description`, take `certs`.
-
-**Example Input:** 
-- `order_blocks` length: 1
-- `applicable_certifications`: ["GOTS", "Fairtrade Cotton"] (mismatch → map path)
-- `style_description`: `Womens Polo shortsleeve "GOTS + Fairtrade"`
-- `cert_map`: { "Womens Polo shortsleeve \"GOTS + Fairtrade\"": "GOTS" }
-
-**Example Output:** 
-`current_certification = "GOTS"`
-
-**Handling Notes:** 
-- Index-based selection if lengths match; map/partial-match fallback if they don’t.
-
---------------------------------------------------------------------
-
-### Size/Quantity Lines
-**Implementation:** 
-- Scan block lines; record the line starting with `Size` and the next line starting with `Qty`.
-- `sizes = size_line.split()[1:]`
-- `quantities_raw = qty_line.split()[1:]`
-- `quantities = [str(parse_decimal(qty, locale='de_DE')) for qty in quantities_raw]`
-
-**Example Input:** 
-Size XS S M L XL XXL 3XL 4XL 5XL
-Qty 860 4.630 6.120 4.980 3.120 1.420 480 240 215
-
-**Example Output:** 
-- Sizes: `['XS','S','M','L','XL','XXL','3XL','4XL','5XL']`
-- Quantities: `['860','4630','6120','4980','3120','1420','480','240','215']`
-
-**Handling Notes:** 
-- Requires both a `Size` line and a `Qty` line to proceed.
-- Quantities are parsed in German locale.
-
---------------------------------------------------------------------
-
-### Row Emission (Orders List)
-**Implementation:** 
-For each `(size, qty)` pair (zipped) in a block, append a dict to `orders` containing all common fields plus block-specific fields:
-- Keys include: `Order Number`, `Buy-from Vendor No`, `Order Date`, `Purchaser`, `Email`, `Phone No`, `Payment Terms`, `Payment Method`, `Shipment Method`, `Transport Method`, `Shipping Agent Code`, `Port of Departure`, `Shipment Date ETD`, `Cost Center`, `Ship-to Address`, `Buying House Address`, `Agency to Address`, `Agency to Address Details`, `Unit`, `Currency`, `Style No`, `Style Description`, `Applicable Certifications`, `Customs No`, `Shipment FOB Date`, `Color`, `Size`, `Qty`, `Price`, `Total Quantity`, `Amount`, `Total Pieces`, `Total USD`.
-
-**Example Input:** 
-Sizes and quantities as above; common fields already extracted; block fields extracted as shown previously.
-
-**Example Output:** 
-One row per size (e.g., 9 rows for 9 sizes), each with the same shared values and block-specific values, and per-size `Size` and `Qty`.
-
-**Handling Notes:** 
-- If size/qty counts mismatch, `zip` truncates to the shortest; no explicit warning is issued.
-- Missing fields are set to `"Not found"` or `None` as per prior extraction logic.
+**Handling Notes**: All field extractions use permissive patterns with graceful degradation to "Not found" values rather than validation failures.

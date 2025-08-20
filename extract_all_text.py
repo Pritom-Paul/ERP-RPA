@@ -508,14 +508,20 @@ for filename in os.listdir(pdf_dir):
         if len(orders_df) != len(sizes_list) or len(orders_df) != len(quantities_list):
             raise ValueError(f"Length mismatch: orders({len(orders_df)}), sizes({len(sizes_list)}), quantities({len(quantities_list)})")
 
-        # Assign the global size and quantity lists to the pre-initialized columns
-        orders_df['Size'] = sizes_list
-        orders_df['Qty'] = quantities_list
+        if sizes_list and quantities_list:
+            # Ensure sizes_list and quantities_list are the same length as orders_df
+            if len(sizes_list) != len(orders_df) or len(quantities_list) != len(orders_df):
+                raise ValueError(f"Sizes and Quantities lists do not match orders DataFrame length: {len(sizes_list)} vs {len(orders_df)}, {len(quantities_list)} vs {len(orders_df)}")
+            # Assign the global size and quantity lists to the pre-initialized columns
+            orders_df['Size'] = sizes_list
+            orders_df['Qty'] = quantities_list
         
-        
-        print(f"Extracted Orders DataFrame:\n{orders_df}")
-        # # Save to Excel
-        output_excel = os.path.join(pdf_dir, f"{os.path.splitext(filename)[0]}_orders.xlsx")
-        orders_df.to_excel(output_excel, index=False)
-        print(f"Extracted orders saved to {output_excel}")
+        if orders_df.empty:
+            raise ValueError(f"No valid order data extracted from {filename}")
+        else:
+            print(f"Extracted Orders DataFrame:\n{orders_df}")
+            # # Save to Excel
+            output_excel = os.path.join(pdf_dir, f"{os.path.splitext(filename)[0]}_orders.xlsx")
+            orders_df.to_excel(output_excel, index=False)
+            print(f"Extracted orders saved to {output_excel}")
 
