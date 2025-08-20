@@ -172,6 +172,15 @@ for filename in os.listdir(pdf_dir):
                     sizes_list.append(size)
                     quantities_list.append(str(qty))
 
+        # print(len(sizes_list), len(quantities_list))
+        if len(sizes_list) != len(quantities_list):
+            # print(f"Warning: Sizes and Quantities lists have different lengths! Sizes: {len(sizes_list)}, Quantities: {len(quantities_list)}")
+            # Handle the mismatch by raising an error
+            raise ValueError("Sizes and Quantities lists have different lengths!")
+        # else:
+            # print(f"Sizes: {sizes_list}, Quantities: {quantities_list}")
+            # print("LENGTH:",len(sizes_list))
+
 
         #* COMMON/SHARED FIELDS
 
@@ -288,7 +297,7 @@ for filename in os.listdir(pdf_dir):
                     for col_idx in range(df.shape[1]):
                         cell_value = str(df.iloc[row_idx, col_idx]).strip()
                         if "Ship-to Address" in cell_value:
-                            print(f"Found 'Ship-to Address' at Table {i+1}, Row {row_idx+1}, Column {col_idx+1}")
+                            # print(f"Found 'Ship-to Address' at Table {i+1}, Row {row_idx+1}, Column {col_idx+1}")
                             
                             # Extract ship-to address (next row in same column)
                             if row_idx + 1 < df.shape[0]:
@@ -354,7 +363,7 @@ for filename in os.listdir(pdf_dir):
 
         # Check if we have matching certifications before processing
         if len(applicable_certifications) != len(order_blocks):
-            print(f"Warning: Length mismatch! Order blocks: {len(order_blocks)}, Certifications: {len(applicable_certifications)}")
+            # print(f"Warning: Length mismatch! Order blocks: {len(order_blocks)}, Certifications: {len(applicable_certifications)}")
             use_cert_map = True
         else:
             use_cert_map = False
@@ -436,65 +445,74 @@ for filename in os.listdir(pdf_dir):
                 current_certification = cert_map.get(style_description, "Not found")
                 # print(f"[DEBUG] Block {block_idx}: Style Description = '{style_description}' | Mapped Cert = '{current_certification}'")
 
-                if current_certification == "Not found":
-                    # fallback: partial match
-                    for desc, certs in cert_map.items():
-                        if desc in style_description:
-                            current_certification = certs
-                            # print(f"[DEBUG] Block {block_idx}: Fallback partial match → '{desc}' → '{certs}'")
-                            break
+                # if current_certification == "Not found":
+                #     # fallback: partial match
+                #     for desc, certs in cert_map.items():
+                #         if desc in style_description:
+                #             current_certification = certs
+                #             print(f"For Block {block_idx}: Fallback partial match → '{desc}' → '{certs}'")
+                #             break
                 # print(f"[DEBUG] Final mapping for Block {block_idx}: Style No = {style_no}, Style Desc = '{style_description}', Certification = '{current_certification}'")
-
-
-        # print(len(sizes_list), len(quantities_list))
-        if len(sizes_list) != len(quantities_list):
-            print(f"Warning: Sizes and Quantities lists have different lengths! Sizes: {len(sizes_list)}, Quantities: {len(quantities_list)}")
-            # Handle the mismatch by raising an error
-            raise ValueError("Sizes and Quantities lists have different lengths!")
-        else:
-            print(f"Sizes: {sizes_list}, Quantities: {quantities_list}")
-            print("LENGTH:",len(sizes_list))
             
-        # Store as dict - one row per size
-        for size, qty in zip(sizes_list, quantities_list):
-            orders.append({
-                'Order Number': order_number,
-                'Buy-from Vendor No': buy_from_vendor_no,
-                'Order Date': order_date,
-                'Purchaser': purchaser,
-                'Email': email,
-                'Phone No': phone_no,
-                'Payment Terms': payment_terms,
-                'Payment Method': payment_method,
-                'Shipment Method': shipment_method,
-                'Transport Method': transport_method,
-                'Shipping Agent Code': shipping_agent_code,
-                'Port of Departure': port_of_departure,
-                'Shipment Date ETD': shipment_date_etd,
-                'Cost Center': cost_center,
-                'Ship-to Address': ship_to_address,
-                'Buying House Address': buying_house_address,
-                'Agency to Address': agency_to_address,
-                'Agency to Address Details': agency_full_address,
-                'Unit': unit,
-                'Currency': currency,
-                'Style No': style_no,
-                'Style Description': style_description,
-                'Applicable Certifications': current_certification,
-                'Customs No': customs_no,
-                'Shipment FOB Date': shipment_fob_date,
-                'Color': color,
-                'Size': size,
-                'Qty': qty,
-                'Price': price,
-                'Total Quantity': total_quantity,
-                'Amount': amount,
-                "Total Pieces": total_pieces,
-                "Total USD": total_usd,
-            })
+            # Get Size length for this block(For Loop count for the block)
+            size_line = ""
+            for line in lines:
+                if line.startswith("Size"):
+                    size_line = line
+            if size_line:
+                # Extract sizes (skip the first word "Size")
+                sizes = size_line.split()[1:]
+
+            # Store as dict - one row per size
+            # for size, qty in zip(sizes_list, quantities_list):
+            for i in range(len(sizes)):
+                orders.append({
+                    'Order Number': order_number,
+                    'Buy-from Vendor No': buy_from_vendor_no,
+                    'Order Date': order_date,
+                    'Purchaser': purchaser,
+                    'Email': email,
+                    'Phone No': phone_no,
+                    'Payment Terms': payment_terms,
+                    'Payment Method': payment_method,
+                    'Shipment Method': shipment_method,
+                    'Transport Method': transport_method,
+                    'Shipping Agent Code': shipping_agent_code,
+                    'Port of Departure': port_of_departure,
+                    'Shipment Date ETD': shipment_date_etd,
+                    'Cost Center': cost_center,
+                    'Ship-to Address': ship_to_address,
+                    'Buying House Address': buying_house_address,
+                    'Agency to Address': agency_to_address,
+                    'Agency to Address Details': agency_full_address,
+                    'Unit': unit,
+                    'Currency': currency,
+                    'Style No': style_no,
+                    'Style Description': style_description,
+                    'Applicable Certifications': current_certification,
+                    'Customs No': customs_no,
+                    'Shipment FOB Date': shipment_fob_date,
+                    'Color': color,
+                    'Size': None,
+                    'Qty': None,
+                    'Price': price,
+                    'Total Quantity': total_quantity,
+                    'Amount': amount,
+                    "Total Pieces": total_pieces,
+                    "Total USD": total_usd,
+                })
 
         # Convert to DataFrame
         orders_df = pd.DataFrame(orders)
+        # Check lengths match
+        if len(orders_df) != len(sizes_list) or len(orders_df) != len(quantities_list):
+            raise ValueError(f"Length mismatch: orders({len(orders_df)}), sizes({len(sizes_list)}), quantities({len(quantities_list)})")
+
+        # Assign the global size and quantity lists to the pre-initialized columns
+        orders_df['Size'] = sizes_list
+        orders_df['Qty'] = quantities_list
+        
+        
         print(f"Extracted Orders DataFrame:\n{orders_df}")
         # # Save to Excel
         output_excel = os.path.join(pdf_dir, f"{os.path.splitext(filename)[0]}_orders.xlsx")
