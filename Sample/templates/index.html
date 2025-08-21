@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>PDF Processor</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 40px;
+            background-color: #0d1b2a; /* Dark navy blue background */
+            color: #fff;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: #1b263b;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #e0e1dd;
+            text-align: center;
+        }
+        p {
+            text-align: center;
+            color: #ccc;
+        }
+        .file-input {
+            margin: 20px 0;
+            padding: 20px;
+            border: 2px dashed #415a77;
+            text-align: center;
+            border-radius: 6px;
+            background-color: #0d1b2a;
+        }
+        input[type="file"] {
+            color: #e0e1dd;
+        }
+        button {
+            background-color: #1b6ca8;
+            color: white;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            width: 100%;
+            transition: background-color 0.2s ease;
+        }
+        button:hover {
+            background-color: #144e75;
+        }
+        .messages {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 6px;
+        }
+        .messages p { margin: 0; }
+        .success {
+            background-color: #2e7d32;
+            color: #fff;
+        }
+        .error {
+            background-color: #c62828;
+            color: #fff;
+        }
+        .download-btn {
+            display: block;
+            margin-top: 20px;
+            text-align: center;
+        }
+        .download-btn a {
+            display: inline-block;
+            padding: 12px 20px;
+            background-color: #28a745;
+            color: white;
+            border-radius: 6px;
+            text-decoration: none;
+            font-weight: bold;
+        }
+        .download-btn a:hover {
+            background-color: #218838;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>PDF Processor</h1>
+        <p>Upload a PDF to process shipment dates, prices, and amounts</p>
+        
+        <form id="processForm" action="/process" method="post" enctype="multipart/form-data">
+            <div class="file-input">
+                <input type="file" name="file" accept=".pdf" required>
+            </div>
+            <button type="submit" id="processBtn">Process PDF</button>
+        </form>
+
+        <div class="messages">
+            {% with messages = get_flashed_messages() %}
+                {% if messages %}
+                    {% for message in messages %}
+                        <p>{{ message }}</p>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+        </div>
+
+        {% if download_file %}
+        <div class="download-btn">
+            <a href="{{ url_for('download_file', filename=download_file) }}">⬇️ Download Processed PDF</a>
+        </div>
+        {% endif %}
+    </div>
+
+    <script>
+        const form = document.getElementById("processForm");
+        const button = document.getElementById("processBtn");
+
+        form.addEventListener("submit", () => {
+            button.disabled = true;
+            button.textContent = "Processing...";
+        });
+    </script>
+</body>
+</html>
