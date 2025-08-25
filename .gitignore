@@ -12,7 +12,7 @@ __pycache__/
 Thumbs.db
 
 # Ignore PDFs or other bulk data
-*.pdf
+# *.pdf
 *.docx
 *.xlsx
 

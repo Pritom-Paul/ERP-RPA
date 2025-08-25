@@ -3,7 +3,7 @@ import re
 import pdfplumber
 import pandas as pd
 
-pdf_dir = r"C:\Users\Altersense\Desktop\ERP-RPA\Format 1 Test\DOCUMENTS(without prepack)"
+pdf_dir = r"C:\Users\Altersense\Desktop\ERP-RPA\Format 2 Test\Main"
 
 for filename in os.listdir(pdf_dir):
     if filename.lower().endswith(".pdf"):
@@ -253,7 +253,7 @@ for filename in os.listdir(pdf_dir):
         if len(barcodes) != len(group_entries):
             print(f"⚠️ Warning: For the file: {filename} Number of barcodes ({len(barcodes)}) does not match group entries ({len(group_entries)}).")
             # print(f"-----All text:\n{all_text}\n-----")
-            print(f"body_text_lines: {body_text_lines}")
+            # print(f"body_text_lines: {body_text_lines}")
         else:
             print(f"✅ Number of barcodes matches group entries.")
 
